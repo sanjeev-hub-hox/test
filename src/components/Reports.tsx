@@ -225,47 +225,60 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/'
       fetchData()
     }, [])
 
-    const handleReportDownload = async(type:string) =>{
-      setGlobalState({isLoading:true})
+    const handleReportDownload = async (type: string) => {
+      setGlobalState({ isLoading: true })
+      
       let endpoint = null;
-      if(type == 'enquiry'){
+      if (type == 'enquiry') {
         endpoint = `marketing/enquiry/ay/enquiry-report`
-      }else if(type == 'admission'){
+      } else if (type == 'admission') {
         endpoint = `marketing/enquiry/ay/admission-enquiry-report`
-      } else if(type == 'daily'){
+      } else if (type == 'daily') {
         endpoint = `marketing/enquiry/ay/appointment-report`
       } else if (type == 'sourceInquiryStatus') {
         endpoint = `marketing/enquiry/ay/source-wise-conversion-report`
       }
-  
-      const params = {
-          url:endpoint,
-      }
 
-      
-      const response = type==='daily'? await postRequest(params) : await getRequest(params)
-      if(response?.status){
-          const fileUrl = response?.data?.url //resp?.data?.url // Replace with your file URL
-          const fileName = response.data.fileName // Optional: Specify the file name for download
-          const link = document.createElement('a')
-          link.href = fileUrl
-          link.download = fileName 
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-          
-      }
-      setGlobalState({isLoading:false})
-    }
+      try {
+        // Use fetch with blob response type for streaming
+        const token = getLocalStorageVal('token') // Get your auth token
+        const response = await fetch(`${BASE_URL}${endpoint}`, {
+          method: type === 'daily' ? 'POST' : 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          ...(type === 'daily' && { body: JSON.stringify({}) })
+        })
 
-    // Helper function to download file from URL
-    const downloadFile = (fileUrl: string, fileName: string) => {
-      const link = document.createElement('a')
-      link.href = fileUrl
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+        if (!response.ok) {
+          throw new Error('Download failed')
+        }
+
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition')
+        const fileNameMatch = contentDisposition?.match(/filename="?(.+)"?/i)
+        const fileName = fileNameMatch ? fileNameMatch[1] : `${type}-report.xlsx`
+
+        // Convert response to blob and trigger download
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = fileName
+        document.body.appendChild(link)
+        link.click()
+        
+        // Cleanup
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(link)
+        
+      } catch (error) {
+        console.error('Download error:', error)
+        // Show error toast/notification here
+      } finally {
+        setGlobalState({ isLoading: false })
+      }
     }
 
     const handleFilteredReportDownload = async (reportType: string, filters: {}) => {
@@ -278,25 +291,41 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/'
       const appliedFilters = filters || {};
 
       try {
-        setGlobalState({ isLoading: true });  // ✅ START LOADING
+        setGlobalState({ isLoading: true });
 
-        const apiRequest = {
-          url: endpoint,
-          ...(method === 'POST' && { data: appliedFilters })
-        };
+        const token = getLocalStorageVal('token')
+        const response = await fetch(`${BASE_URL}${endpoint}`, {
+          method: method,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          ...(method === 'POST' && { body: JSON.stringify(appliedFilters) })
+        })
 
-        const response =
-          method === 'GET'
-            ? await getRequest({ ...apiRequest, params: appliedFilters })
-            : await postRequest(apiRequest);
-
-        if (response?.data?.url) {
-          downloadFile(response.data.url, `${reportConfig.label}.xlsx`);
+        if (!response.ok) {
+          throw new Error('Download failed')
         }
+
+        const contentDisposition = response.headers.get('Content-Disposition')
+        const fileNameMatch = contentDisposition?.match(/filename="?(.+)"?/i)
+        const fileName = fileNameMatch ? fileNameMatch[1] : `${reportConfig.label}.xlsx`
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = fileName
+        document.body.appendChild(link)
+        link.click()
+        
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(link)
+
       } catch (err) {
-        console.error('Download error:', err);
+        console.error('Download error:', err)
       } finally {
-        setGlobalState({ isLoading: false });  // ✅ STOP LOADING
+        setGlobalState({ isLoading: false });
       }
     };
 

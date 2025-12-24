@@ -492,13 +492,13 @@ function EnquiryListing() {
         const apiRequest = {
           url: `marketing/enquiry/list/global-search`,
           serviceURL: 'marketing',
-          params: { 
+          data: { 
             page: page, 
             size: pageSize, 
             search: searchText.trim()
           }
         }
-        const response: any = await getRequest(apiRequest)
+        const response: any = await postRequest(apiRequest)
         if (response?.status) {
           const data: any = response?.data
           const rowsWithSerialNumber = response?.data?.content?.map((row: any, index: any) => ({

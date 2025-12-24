@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Box,
   Typography,
@@ -15,12 +15,16 @@ import {
   Alert,
   IconButton
 } from '@mui/material'
-import { DataGrid } from '@mui/x-data-grid'
+import {
+  DataGrid,
+  GridColDef,
+  GridPaginationModel,
+} from '@mui/x-data-grid';
 import { getRequest, postRequest } from 'src/services/apiService'
 import { useGlobalContext } from 'src/@core/global/GlobalContext'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import CloseIcon from '@mui/icons-material/Close'
-
+import debounce from 'lodash/debounce'
 
 interface ReferralRow {
   id: string
@@ -48,14 +52,40 @@ interface ReferralRow {
   referrerManuallyRejected?: boolean      
   referralManuallyRejected?: boolean      
   referrerRejectionReason?: string        
-  referralRejectionReason?: string        
+  referralRejectionReason?: string
+  manuallyVerified?: boolean  // NEW: Check for overall manual verification
+  manuallyVerifiedData?: {
+    manuallyVerified: boolean
+    manuallyVerifiedAt: Date
+    manuallyVerifiedBy: string
+    manualVerificationReason: string
+  }
+  manuallyRejectedData?: {
+    manuallyRejected: boolean
+    manuallyRejectedAt: Date
+    manualRejectionReason: string
+  }
+  manuallyRejected: boolean // NEW: Check for overall manual rejection
+}
+
+interface PaginationInfo {
+  page: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+  hasNextPage: boolean
+  hasPrevPage: boolean
 }
 
 const ReferralListing = () => {
   const [referrals, setReferrals] = useState<ReferralRow[]>([])
-  const [filteredReferrals, setFilteredReferrals] = useState<ReferralRow[]>([])
-  // const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
+    page: 0,
+    pageSize: 10
+  })
+  const [rowCount, setRowCount] = useState(0)
+  const [loading, setLoading] = useState(false)
   const [verifyDialog, setVerifyDialog] = useState<{ open: boolean; row: ReferralRow | null }>({
     open: false,
     row: null
@@ -72,41 +102,43 @@ const ReferralListing = () => {
 
   // Function to determine status based on verification flags
   const determineStatus = (row: ReferralRow): string => {
-    // Check if manually rejected
-    if (row.referrerManuallyRejected || row.referralManuallyRejected) {
+    // ✅ PRIORITY 1: Check for manual rejection first
+    if (row.manuallyRejectedData?.manuallyRejected || row.manuallyRejected) {
       return 'Rejected'
     }
 
-    const referrerVerified = row.referrerVerified || row.referrerManuallyVerified
-    const referralVerified = row.referralVerified || row.referralManuallyVerified
+    // ✅ PRIORITY 2: Check for manual verification (TREAT AS BOTH VERIFIED)
+    if (row.manuallyVerifiedData?.manuallyVerified || row.manuallyVerified) {
+      return 'Both Verified'
+    }
 
-    // Both verified
+    // ✅ PRIORITY 3: Check automatic verifications (only if not manually verified)
+    const referrerVerified = row.referrerVerified
+    const referralVerified = row.referralVerified
+
     if (referrerVerified && referralVerified) {
       return 'Both Verified'
     }
 
-    // Only referrer verified
     if (referrerVerified && !referralVerified) {
       return 'Referrer Verified'
     }
 
-    // Only referral verified
     if (!referrerVerified && referralVerified) {
       return 'Referral Verified'
     }
 
-    // Check for phone mismatch
-    if (row.referrerPhone && row.referralPhone) {
-      const normalizePhone = (phone: string) => phone.replace(/\D/g, '').slice(-10)
-      const referrerNormalized = normalizePhone(row.referrerPhone)
-      const referralNormalized = normalizePhone(row.referralPhone)
+    // ✅ PRIORITY 4: Check for phone mismatch
+    // if (row.referrerPhone && row.referralPhone) {
+    //   const normalizePhone = (phone: string) => phone.replace(/\D/g, '').slice(-10)
+    //   const referrerNormalized = normalizePhone(row.referrerPhone)
+    //   const referralNormalized = normalizePhone(row.referralPhone)
       
-      if (referrerNormalized !== referralNormalized) {
-        return 'Phone Mismatch'
-      }
-    }
+    //   if (referrerNormalized !== referralNormalized) {
+    //     return 'Phone Mismatch'
+    //   }
+    // }
 
-    // Default to pending
     return 'Pending'
   }
 
@@ -155,7 +187,6 @@ const ReferralListing = () => {
       const response = await postRequest(params)
 
       if (response?.success) {
-        // Refresh the data to get updated status
         await fetchReferrals()
         handleCloseVerifyDialog()
       }
@@ -192,7 +223,6 @@ const ReferralListing = () => {
       const response = await postRequest(params)
 
       if (response?.success) {
-        // Refresh the data to get updated status
         await fetchReferrals()
         handleCloseRejectDialog()
       }
@@ -210,13 +240,11 @@ const ReferralListing = () => {
         field: 'student_name', 
         headerName: 'Name of the Student', 
         width: 180,
-        pinned: 'left'
       },
       { 
-        field: 'enquiry_number', 
-        headerName: 'Enrollment Number', 
+        field: 'enrollment_number', 
+        headerName: 'Enrolment No', 
         width: 150,
-        pinned: 'left'
       },
       { field: 'parent_name', headerName: 'Parent Name', width: 160 },
       { field: 'parent_number', headerName: 'Parent Phone Number', width: 180 },
@@ -274,6 +302,13 @@ const ReferralListing = () => {
             label: status 
           }
 
+          // ✅ Check if manually verified (this takes precedence)
+          const isManuallyVerified = params.row.manuallyVerifiedData?.manuallyVerified || 
+                                      params.row.manuallyVerified
+
+          const isManuallyRejected = params.row.manuallyRejectedData?.manuallyRejected ||
+                                      params.row.manuallyRejected
+
           return (
             <Tooltip
               arrow
@@ -290,33 +325,51 @@ const ReferralListing = () => {
               }}
               title={
                 <Box sx={{ color: '#ffffff !important' }}>
-                  <Typography
-                    variant='caption'
-                    display='block'
-                    sx={{ color: '#ffffff !important', opacity: 1, fontWeight: 500 }}
-                  >
-                    Referrer: {params.row.referrerPhone || 'N/A'}
-                    {params.row.referrerVerified && ' ✓'}
-                    {params.row.referrerManuallyVerified && ' (Manual)'}
-                    {params.row.referrerManuallyRejected && ' ✗ Rejected'}
-                  </Typography>
-                  <Typography
-                    variant='caption'
-                    display='block'
-                    sx={{ color: '#ffffff !important', opacity: 1, fontWeight: 500 }}
-                  >
-                    Referral: {params.row.referralPhone || 'N/A'}
-                    {params.row.referralVerified && ' ✓'}
-                    {params.row.referralManuallyVerified && ' (Manual)'}
-                    {params.row.referralManuallyRejected && ' ✗ Rejected'}
-                  </Typography>
-                  {(params.row.referrerManuallyRejected || params.row.referralManuallyRejected) && (
+                  {isManuallyVerified && (
+                    <Typography
+                      variant='caption'
+                      display='block'
+                      sx={{ color: '#4caf50 !important', opacity: 1, fontWeight: 600, mb: 0.5 }}
+                    >
+                      ✓ Manually Verified by {params.row.manuallyVerifiedData?.manuallyVerifiedBy || 'Admin'}
+                    </Typography>
+                  )}
+                  {isManuallyRejected && (
+                    <Typography
+                      variant='caption'
+                      display='block'
+                      sx={{ color: '#ff6b6b !important', opacity: 1, fontWeight: 600, mb: 0.5 }}
+                    >
+                      ✗ Manually Rejected
+                    </Typography>
+                  )}
+                  {!isManuallyVerified && !isManuallyRejected && (
+                    <>
+                      <Typography
+                        variant='caption'
+                        display='block'
+                        sx={{ color: '#ffffff !important', opacity: 1, fontWeight: 500 }}
+                      >
+                        Referrer: {params.row.referrerPhone || 'N/A'}
+                        {params.row.referrerVerified && ' ✓'}
+                      </Typography>
+                      <Typography
+                        variant='caption'
+                        display='block'
+                        sx={{ color: '#ffffff !important', opacity: 1, fontWeight: 500 }}
+                      >
+                        Referral: {params.row.referralPhone || 'N/A'}
+                        {params.row.referralVerified && ' ✓'}
+                      </Typography>
+                    </>
+                  )}
+                  {isManuallyRejected && (
                     <Typography
                       variant='caption'
                       display='block'
                       sx={{ color: '#ff6b6b !important', opacity: 1, fontWeight: 600, mt: 0.5 }}
                     >
-                      Reason: {params.row.referrerRejectionReason || params.row.referralRejectionReason || 'N/A'}
+                      Reason: {params.row.manuallyRejectedData?.manualRejectionReason || 'N/A'}
                     </Typography>
                   )}
                 </Box>
@@ -348,7 +401,6 @@ const ReferralListing = () => {
         headerName: 'Action',
         width: 120,
         sortable: false,
-        pinned: 'right',
         renderCell: (params: { row: ReferralRow }) => {
           const status = determineStatus(params.row)
 
@@ -418,116 +470,133 @@ const ReferralListing = () => {
             </Button>
           )
         }
-
       }
     ],
     []
   )
 
   const fetchReferrals = async () => {
-    // setLoading(true)
-    setGlobalState({ isLoading: true })
+    setLoading(true)
 
     try {
-      // Changed endpoint to get ALL referrals, not just successful ones
-      const params = { url: `marketing/enquiry/getAllReferrals` }
+      const params = { 
+        url: `marketing/enquiry/getAllReferrals?page=${paginationModel.page + 1}&pageSize=${paginationModel.pageSize}&search=${search}` 
+      }
       const response = await getRequest(params)
 
-      if (Array.isArray(response?.data)) {
-        const formatted = response.data.map((item: any, index: number) => ({
-          id: item.enquiryid || index + 1,
-          ...item
-        })).reverse()
+      if (response?.data?.data && Array.isArray(response.data.data)) {
+        const formatted = response.data.data.map((item: any) => ({
+          id: item.enquiryid || item.id,
+          ...item,
+          // ✅ Extract manual verification data (takes precedence over individual flags)
+          manuallyVerified: item.manuallyVerified || false,
+          manuallyVerifiedData: item.manuallyVerifiedData || null,
+          manuallyRejected: item.manuallyRejected || false,
+          manuallyRejectedData: item.manuallyRejectedData || null,
+        }))
 
-        console.log('Formatted referrals:', formatted)
         setReferrals(formatted)
-        setFilteredReferrals(formatted)
+        
+        if (response.data.pagination) {
+          setRowCount(response.data.pagination.totalCount)
+        }
       } else {
         setReferrals([])
-        setFilteredReferrals([])
+        setRowCount(0)
       }
     } catch (err) {
       console.error('Error fetching referrals:', err)
-      // If getAllReferrals doesn't exist, fallback to original endpoint test
-      try {
-        const params = { url: `marketing/enquiry/getAllReferrals` }
-        const response = await getRequest(params)
-
-        if (Array.isArray(response?.data)) {
-          const formatted = response.data.map((item: any, index: number) => ({
-            id: item.enquiryid || index + 1,
-            ...item
-          })).reverse()
-
-          setReferrals(formatted)
-          setFilteredReferrals(formatted)
-        }
-      } catch (fallbackErr) {
-        console.error('Error with fallback fetch:', fallbackErr)
-      }
+      setReferrals([])
+      setRowCount(0)
     } finally {
-      // setLoading(false)
-      setGlobalState({ isLoading: false })
+      setLoading(false)
     }
   }
+
+  // Debounced search function
+  const debouncedFetchReferrals = useCallback(
+    debounce(() => {
+      fetchReferrals()
+    }, 500),
+    [paginationModel, search]
+  )
 
   useEffect(() => {
     setPagePaths([{ title: 'Referral Listing', path: '/referral-listing' }])
   }, [])
 
   useEffect(() => {
-    fetchReferrals()
-  }, [])
+    debouncedFetchReferrals()
+    
+    return () => {
+      debouncedFetchReferrals.cancel()
+    }
+  }, [paginationModel, search])
 
   const handleSearchChange = (value: string) => {
     setSearch(value)
-    const filtered = referrals.filter(r =>
-      r.student_name?.toLowerCase().includes(value.toLowerCase()) ||
-      r.enquiry_number?.toLowerCase().includes(value.toLowerCase()) ||
-      r.parent_name?.toLowerCase().includes(value.toLowerCase())
-    )
-    setFilteredReferrals(filtered)
+    setPaginationModel(prev => ({ ...prev, page: 0 }))
   }
 
-  const handleExportCSV = () => {
-    if (!filteredReferrals.length) return
+  const handlePaginationModelChange = (newModel: GridPaginationModel) => {
+    setPaginationModel(newModel)
+  }
 
-    const headers = columns
-      .filter((col: any) => col.field !== 'action')
-      .map((col: any) => col.headerName)
+  const handleExportCSV = async () => {
+    try {
+      const params = { 
+        url: `marketing/enquiry/getAllReferrals?page=1&pageSize=99999&search=${search}` 
+      }
+      const response = await getRequest(params)
 
-    const rows = filteredReferrals.map(row => {
-      return columns
+      if (!response?.data?.data?.length) return
+
+      const headers = columns
         .filter((col: any) => col.field !== 'action')
-        .map((col: any) => {
-          if (col.field === 'status') {
-            return `"${determineStatus(row)}"`
-          }
-          const value = row[col.field as keyof ReferralRow]
-          if (value === null || value === undefined) return ''
-          const stringValue = String(value).replace(/"/g, '""')
+        .map((col: any) => col.headerName)
 
-          return `"${stringValue}"`
-        })
-        .join(',')
-    })
+      const rows = response.data.data.map((row: any) => {
+        const formattedRow = {
+          ...row,
+          manuallyVerified: row.other_details?.manuallyVerifiedData?.manuallyVerified,
+          manuallyVerifiedData: row.other_details?.manuallyVerifiedData,
+          manuallyRejectedData: row.other_details?.manuallyRejectedData
+        }
+        
+        return columns
+          .filter((col: any) => col.field !== 'action')
+          .map((col: any) => {
+            if (col.field === 'status') {
+              return `"${determineStatus(formattedRow)}"`
+            }
+            const value = formattedRow[col.field as keyof ReferralRow]
+            if (value === null || value === undefined) return ''
+            const stringValue = String(value).replace(/"/g, '""')
 
-    const csvContent = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
+            return `"${stringValue}"`
+          })
+          .join(',')
+      })
 
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `referral_list_${Date.now()}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+      const csvContent = [headers.join(','), ...rows].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `referral_list_${Date.now()}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error exporting CSV:', error)
+    }
   }
 
   const normalizePhoneDisplay = (phone: string) => {
     if (!phone) return 'N/A'
-
+    
     return phone.replace(/\D/g, '').slice(-10)
   }
 
@@ -555,7 +624,7 @@ const ReferralListing = () => {
       >
         <TextField
           size="small"
-          placeholder="Search by Student Name, Enquiry Number, or Parent Name"
+          placeholder="Search by Student Name, Enrolment No, or Parent Name"
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
           sx={{
@@ -584,42 +653,48 @@ const ReferralListing = () => {
         </Tooltip>
       </Box>
 
-      {/* {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : ( */}
-        <DataGrid
-          rows={filteredReferrals}
-          columns={columns}
-          getRowId={(row) => row.id}
-          autoHeight
-          disableRowSelectionOnClick
-          pageSizeOptions={[10, 20, 50]}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 10, page: 0 } }
-          }}
-          sx={{
-            '& .MuiDataGrid-columnHeader': {
-              backgroundColor: '#f5f5f5',
-              fontWeight: 600
-            },
-            '& .MuiDataGrid-cell': {
-              display: 'flex',
-              alignItems: 'center',
-              py: 1
-            },
-            '& .MuiDataGrid-row': {
-              '&:hover': {
-                backgroundColor: '#fafafa'
-              }
-            },
-            '& .MuiDataGrid-virtualScroller': {
-              overflowX: 'auto !important'
+      <DataGrid
+        rows={referrals}
+        columns={columns}
+        getRowId={(row) => row.id}
+        rowCount={rowCount}
+        loading={loading}
+        pagination
+        paginationMode="server"
+        paginationModel={paginationModel}
+        onPaginationModelChange={handlePaginationModelChange}
+        pageSizeOptions={[10, 20, 50, 100]}
+        disableRowSelectionOnClick
+        autoHeight
+        sx={{
+          '& .MuiDataGrid-columnHeader': {
+            backgroundColor: '#f5f5f5',
+            fontWeight: 600,
+            borderRight: '1px solid rgba(224, 224, 224, 1)',
+            borderBottom: '1px solid rgba(224, 224, 224, 1)'
+          },
+          '& .MuiDataGrid-cell': {
+            display: 'flex',
+            alignItems: 'center',
+            py: 1,
+            borderRight: '1px solid rgba(224, 224, 224, 1)',
+            borderBottom: '1px solid rgba(224, 224, 224, 1)'
+          },
+          '& .MuiDataGrid-row': {
+            '&:hover': {
+              backgroundColor: '#fafafa'
             }
-          }}
-        />
-      {/* )} */}
+          },
+          '& .MuiDataGrid-virtualScroller': {
+            overflowX: 'auto !important'
+          },
+          border: '1px solid rgba(224, 224, 224, 1)',
+          '& .MuiDataGrid-columnSeparator': {
+            visibility: 'visible',
+            color: 'rgba(224, 224, 224, 1)'
+          }
+        }}
+      />
 
       {/* Verification Dialog */}
       <Dialog 
@@ -669,7 +744,7 @@ const ReferralListing = () => {
           <Box sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 3, mb: 3 }}>
             <Box>
               <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, display: 'block', mb: 0.5 }}>
-                Enrollment Number
+                Enrolment No
               </Typography>
               <Typography sx={{ fontSize: '0.95rem' }}>
                 {verifyDialog.row?.enrollment_number || '-'}

@@ -12,28 +12,67 @@ interface EmployeeOption {
     Full_Name: string
     Mobile: string
     Official_Email_ID: string
-    Role?: string
     Group_Employee_Code?: string
     Designation?: { data?: { attributes?: { Designation?: string } } }
     Business_Sub_Sub_Vertical?: { data?: { attributes?: { description?: string } } }
   }
 }
 
-const EnquiryEmployeeSource = ({ enquiryEmployeeSource, handleChange, val, formData, setFormData }: any) => {
+interface Props {
+  enquiryEmployeeSource: boolean
+  formData: any
+  setFormData: (updater: (prev: any) => any) => void
+}
+
+const EnquiryEmployeeSource = ({ enquiryEmployeeSource, formData, setFormData }: Props) => {
   const [options, setOptions] = useState<EmployeeOption[]>([])
   const [inputValue, setInputValue] = useState('')
   const [selectedOption, setSelectedOption] = useState<EmployeeOption | null>(null)
   const { setGlobalState } = useGlobalContext()
 
-  // fetch with populate=* so Designation & Business_Sub_Sub_Vertical are present
+  // Pre-load when editing an existing record — read from formData.referral_source directly
+  useEffect(() => {
+    const referral = formData?.referral_source
+    if (referral?.type === 'employee' && referral?.id && !selectedOption) {
+      const fetchById = async () => {
+        try {
+          setGlobalState({ isLoading: true })
+          const params = {
+            url: `/api/hr-employee-masters/${referral.id}?populate=*`,
+            serviceURL: 'mdm',
+            headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_MDM_TOKEN}` }
+          }
+          const response = await getRequest(params)
+          const emp: EmployeeOption = response?.data
+          if (emp) {
+            setSelectedOption(emp)
+            setOptions([emp])
+            setInputValue(getFullName(emp))
+          }
+        } catch (err) {
+          // console.error('Error pre-loading employee:', err)
+        } finally {
+          setGlobalState({ isLoading: false })
+        }
+      }
+      fetchById()
+    }
+  }, [])
+
+  // Reset when sub-source type is changed away from Employee
+  useEffect(() => {
+    if (!enquiryEmployeeSource) {
+      setSelectedOption(null)
+      setInputValue('')
+      setOptions([])
+    }
+  }, [enquiryEmployeeSource])
+
   const fetchOptions = async (search: string) => {
-    if (!enquiryEmployeeSource) return
     try {
       setGlobalState({ isLoading: true })
-
-      const encodedSearch = encodeURIComponent(search)
-      const query = `filters[$or][0][First_Name][$containsi]=${encodedSearch}&filters[$or][1][Last_Name][$containsi]=${encodedSearch}&pagination[limit]=50&populate=*`
-
+      const encoded = encodeURIComponent(search)
+      const query = `filters[$or][0][First_Name][$containsi]=${encoded}&filters[$or][1][Last_Name][$containsi]=${encoded}&pagination[limit]=50&populate=*`
       const params = {
         url: `/api/hr-employee-masters?${query}`,
         serviceURL: 'mdm',
@@ -42,234 +81,93 @@ const EnquiryEmployeeSource = ({ enquiryEmployeeSource, handleChange, val, formD
         }
       }
       const response = await getRequest(params)
-      const data = response?.data
-
-      if (Array.isArray(data) && data.length > 0) {
-        setOptions(data)
-      } else {
-        setOptions([])
-      }
-    } catch (error) {
+      setOptions(Array.isArray(response?.data) ? response.data : [])
+    } catch (err) {
+      // console.error('Error fetching employees:', err)
       setOptions([])
     } finally {
       setGlobalState({ isLoading: false })
     }
   }
 
-  const debouncedFetch = useMemo(() => debounce(fetchOptions, 400), [enquiryEmployeeSource])
+  const debouncedFetch = useMemo(() => debounce(fetchOptions, 400), [])
+  useEffect(() => () => debouncedFetch.cancel(), [debouncedFetch])
 
-  useEffect(() => {
-    if (!inputValue) return
-    // avoid refetch if input equals current selected full name
-    if (inputValue === `${selectedOption?.attributes?.First_Name} ${selectedOption?.attributes?.Last_Name}`) return
-    debouncedFetch(inputValue)
+  const getFullName = (opt: EmployeeOption) =>
+    opt.attributes.Full_Name?.trim() ||
+    `${opt.attributes.First_Name} ${opt.attributes.Last_Name}`.trim()
 
-    return () => debouncedFetch.cancel()
-  }, [inputValue, debouncedFetch, selectedOption])
-
-  // Initialize selected option if val already exists
-  useEffect(() => {
-    if (val && options.length) {
-      const found = options.find(opt => opt.id === val)
-      if (found) {
-        setSelectedOption(found)
-        setInputValue(`${found.attributes.First_Name} ${found.attributes.Last_Name}`)
-      }
-    }
-  }, [val, options])
-
-  useEffect(() => {
-    const fetchInitialEmployee = async () => {
-      if (val && !selectedOption) {
-        try {
-          setGlobalState({ isLoading: true })
-
-          const params = {
-            url: `/api/hr-employee-masters/${val}?populate=*`,
-            serviceURL: 'mdm',
-            headers: {
-              Authorization: `Bearer ${process.env.NEXT_PUBLIC_MDM_TOKEN}`
+  const applySelection = (emp: EmployeeOption | null) => {
+    setSelectedOption(emp)
+    setInputValue(emp ? getFullName(emp) : '')
+    setFormData((prev: any) => ({
+      ...prev,
+      referral_source: emp
+        ? {
+            type: 'employee',
+            id: emp.id,
+            name: getFullName(emp),
+            email: emp.attributes.Official_Email_ID || '',
+            phone: emp.attributes.Mobile || '',
+            meta: {
+              employee_code: emp.attributes.Group_Employee_Code || '',
+              designation: emp.attributes?.Designation?.data?.attributes?.Designation || '',
+              location: emp.attributes?.Business_Sub_Sub_Vertical?.data?.attributes?.description || ''
             }
           }
-
-          const response = await getRequest(params)
-          const employeeData = response?.data
-
-          if (employeeData) {
-            setSelectedOption(employeeData)
-            setInputValue(employeeData.attributes.Official_Email_ID || '')
-            setOptions([employeeData])
-          }
-        } catch (error) {
-        } finally {
-          setGlobalState({ isLoading: false })
-        }
-      }
-    }
-
-    fetchInitialEmployee()
-  }, [val])
-
-  // Helpers to extract designation & location safely
-  const getDesignation = (opt?: EmployeeOption) => opt?.attributes?.Designation?.data?.attributes?.Designation || '—'
-  const getLocation = (opt?: EmployeeOption) =>
-    opt?.attributes?.Business_Sub_Sub_Vertical?.data?.attributes?.description || '—'
-  const getFullName = (opt?: EmployeeOption) =>
-    opt?.attributes?.Full_Name || `${opt?.attributes?.First_Name || ''} ${opt?.attributes?.Last_Name || ''}`
+        : null
+    }))
+  }
 
   return (
     <Autocomplete
       options={options}
-      // show full name in the label for filtering (keeps caret/filter behavior)
-      getOptionLabel={option => (option ? getFullName(option) : '')}
+      getOptionLabel={(option) => getFullName(option)}
       value={selectedOption}
       inputValue={inputValue}
-      onInputChange={(event, newInputValue, reason) => {
+      onInputChange={(_, value, reason) => {
         if (reason === 'input') {
-          setInputValue(newInputValue)
+          setInputValue(value)
+          if (value.trim()) debouncedFetch(value.trim())
         } else if (reason === 'clear') {
           setInputValue('')
-          setSelectedOption(null)
-          setFormData((prev: any) => ({
-            ...prev,
-            'enquiry_employee_source.id': '',
-            'enquiry_employee_source.value': '',
-            'enquiry_employee_source.name': ''
-          }))
+          applySelection(null)
         }
       }}
-      onChange={(event, newValue) => {
-        if (!newValue) {
-          setSelectedOption(null)
-          setInputValue('')
-          setFormData((prev: any) => ({
-            ...prev,
-            'enquiry_employee_source.id': '',
-            'enquiry_employee_source.value': '',
-            'enquiry_employee_source.name': ''
-          }))
-
-          return
-        }
-
-        setSelectedOption(newValue)
-        // keep inputValue to official email as per your original behaviour
-        setInputValue(newValue.attributes.Official_Email_ID || '')
-
-        // call your handleChange exactly as before (unchanged)
-        handleChange('enquiry_employee_source', newValue.id, [], false, null, {
-          name: 'enquiry_employee_source',
-          input_type: 'masterDropdownExternal',
-          masterOptions: options,
-          type: 'extFields',
-          keyMap: 'id'
-        })
-
-        // push to formData exactly like before (only adding number)
-        setFormData((prev: any) => ({
-          ...prev,
-          'enquiry_employee_source.id': newValue.id,
-          'enquiry_employee_source.value': newValue.attributes.Official_Email_ID,
-          'enquiry_employee_source.name': newValue.attributes.Full_Name,
-          'enquiry_employee_source.number': newValue.attributes.Mobile
-        }))
-      }}
-      // render option (dropdown rows)
-      renderOption={(props, option) => {
-        const designation = getDesignation(option)
-        const location = getLocation(option)
-
-        return (
-          <Box
-            component='li'
-            {...props}
-            key={option.id}
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              width: '100%',
-              py: 1.2,
-              px: 1.5
-            }}
-          >
-            <Box display='flex' justifyContent='space-between' alignItems='center'>
-              <Typography sx={{ fontSize: '1rem', fontWeight: 600, color: 'black' }}>{getFullName(option)}</Typography>
-              <Typography sx={{ fontSize: '0.95rem', color: '#1565c0' }}>
-                ({option.attributes.Group_Employee_Code || '—'})
-              </Typography>
-            </Box>
-
-            <Typography sx={{ fontSize: '0.9rem', color: '#424242', fontWeight: 500 }}>{designation}</Typography>
-            <Typography sx={{ fontSize: '0.8rem', color: '#757575' }}>{location}</Typography>
+      onChange={(_, newValue) => applySelection(newValue)}
+      renderOption={(props, option) => (
+        <Box component="li" {...props} key={option.id} sx={{ display: 'flex', flexDirection: 'column', width: '100%', py: 1.2, px: 1.5 }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography sx={{ fontSize: '1rem', fontWeight: 600, color: 'black' }}>
+              {getFullName(option)}
+            </Typography>
+            <Typography sx={{ fontSize: '0.95rem', color: '#1565c0' }}>
+              ({option.attributes.Group_Employee_Code || '—'})
+            </Typography>
           </Box>
-        )
-      }}
-      // We use renderInput and inject a styled startAdornment so selected item looks same as option inside input
-      renderInput={params => {
-        const selectedAdornment = selectedOption ? (
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              lineHeight: 1.1,
-              width: '100%',
-              scale: '0.85'
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 1
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  color: 'black',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}
-              >
-                {selectedOption.attributes.Full_Name}
+          <Typography sx={{ fontSize: '0.9rem', color: '#424242', fontWeight: 500 }}>
+            {option.attributes?.Designation?.data?.attributes?.Designation || '—'}
+          </Typography>
+          <Typography sx={{ fontSize: '0.8rem', color: '#757575' }}>
+            {option.attributes?.Business_Sub_Sub_Vertical?.data?.attributes?.description || '—'}
+          </Typography>
+        </Box>
+      )}
+      renderInput={(params) => {
+        const adornment = selectedOption ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', overflow: 'hidden', scale: '0.85' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+              <Typography sx={{ fontSize: '1rem', fontWeight: 600, color: 'black', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {getFullName(selectedOption)}
               </Typography>
-              <Typography
-                sx={{
-                  fontSize: '0.95rem',
-                  color: '#1565c0',
-                  flexShrink: 0
-                }}
-              >
+              <Typography sx={{ fontSize: '0.95rem', color: '#1565c0', flexShrink: 0 }}>
                 ({selectedOption.attributes.Group_Employee_Code || '—'})
               </Typography>
             </Box>
-
-            <Typography
-              sx={{
-                fontSize: '0.9rem',
-                color: '#424242',
-                fontWeight: 500,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
+            <Typography sx={{ fontSize: '0.9rem', color: '#424242', fontWeight: 500 }}>
               {selectedOption.attributes?.Designation?.data?.attributes?.Designation || '—'}
             </Typography>
-
-            <Typography
-              sx={{
-                fontSize: '0.8rem',
-                color: '#757575',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
+            <Typography sx={{ fontSize: '0.8rem', color: '#757575' }}>
               {selectedOption.attributes?.Business_Sub_Sub_Vertical?.data?.attributes?.description || '—'}
             </Typography>
           </Box>
@@ -281,50 +179,23 @@ const EnquiryEmployeeSource = ({ enquiryEmployeeSource, handleChange, val, formD
             label={selectedOption ? 'Employee Details' : 'Search Employee'}
             variant='outlined'
             required
-            error={Boolean(formData?.error?.['enquiry_employee_source'])}
+            error={Boolean(formData?.error?.['referral_source'])}
             InputProps={{
               ...params.InputProps,
-              startAdornment: selectedAdornment ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    pl: 1,
-                    pr: 1,
-                    py: 0.5,
-                    width: '100%',
-                    overflow: 'hidden'
-                  }}
-                >
-                  {selectedAdornment}
-                </Box>
-              ) : (
-                params.InputProps.startAdornment
-              )
+              startAdornment: adornment ? (
+                <Box sx={{ pl: 1, pr: 1, py: 0.5, width: '100%', overflow: 'hidden' }}>{adornment}</Box>
+              ) : params.InputProps.startAdornment
             }}
             sx={{
-              '& .MuiInputBase-root': {
-                alignItems: 'flex-start',
-                minHeight: '56px', // ✅ standard MUI input height
-                height: '56px'
-              },
-              '& .MuiInputBase-input': {
-                display: selectedOption ? 'none' : 'block' // hide text input when selected
-              }
+              '& .MuiInputBase-root': { alignItems: 'flex-start', height: '56px' },
+              '& .MuiInputBase-input': { display: selectedOption ? 'none' : 'block' }
             }}
           />
         )
       }}
-      // keep select on single - disable chips rendering
-      disableClearable={false}
       clearOnEscape
+      disableClearable={false}
       fullWidth
-      // ensure the input shows Full_Name text when typing/selecting (getOptionLabel handles it)
-      sx={{
-        '& .MuiAutocomplete-inputRoot': {
-          alignItems: 'flex-start'
-        }
-      }}
     />
   )
 }

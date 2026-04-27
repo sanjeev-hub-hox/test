@@ -325,13 +325,19 @@ export const useFormActions = ({
           ['school_location.value']: null
         }))
         // Fetch new schools for selected year (Skip for Kids Club)
-      if (enquiryTypeData?.slug !== 'externalUserKidsClub') {
-        const schools = await selectOptions(`mdm/schools?filters[academic_year][id]=${value}`)
-        setMasterDropDownOptions((prev: any) => ({
-          ...prev,
-          school_location: schools
-        }))
-      }
+        const isKidsClub =
+          enquiryTypeData?.slug === 'createKidsClubEnquiry' ||
+          enquiryTypeData?.slug === 'externalUserKidsClub' ||
+          enquiryTypeData?.name?.toLowerCase()?.includes('kids club') ||
+          slug === 'createEnquiryKidsClubForm'
+
+        if (!isKidsClub) {
+          const schools = await selectOptions(`mdm/schools?filters[academic_year][id]=${value}`)
+          setMasterDropDownOptions((prev: any) => ({
+            ...prev,
+            school_location: schools
+          }))
+        }
       }
 
       if (
@@ -346,7 +352,16 @@ export const useFormActions = ({
         setFormData((prev: any) => ({ ...prev, ['student_details.eligible_grade']: eligibleGrade }))
       }
 
-      if (name === 'employee_id' && value) {
+      if (name === 'employee_id') {
+        if (!value) {
+          setFormData((prev: any) => ({
+            ...prev,
+            employee_details: null,
+            error: { ...prev.error, employee_id: '' }
+          }))
+          return
+        }
+
         const fetchEmployeeDetails = async () => {
           try {
             setGlobalState({ isLoading: true })
@@ -359,11 +374,27 @@ export const useFormActions = ({
             }
             const response: any = await getRequest(params)
             if (response?.data?.length > 0) {
-              setFormData((prev: any) => ({
-                ...prev,
-                employee_details: response.data[0],
-                error: { ...prev.error, employee_id: '' }
-              }))
+              const emp = response.data[0]
+              const employmentStatus = emp?.attributes?.Employment_Status?.data?.attributes?.Employment_Status
+              const dateSeparation = emp?.attributes?.Date_of_Sepearation
+
+              const isActive = employmentStatus === 'Active'
+              const hasNotResigned = !dateSeparation
+
+              if (isActive && hasNotResigned) {
+                setFormData((prev: any) => ({
+                  ...prev,
+                  employee_details: emp,
+                  error: { ...prev.error, employee_id: '' }
+                }))
+              } else {
+                const reason = !isActive ? 'Employee is not active' : 'Employee has resigned'
+                setFormData((prev: any) => ({
+                  ...prev,
+                  employee_details: null,
+                  error: { ...prev.error, employee_id: reason }
+                }))
+              }
             } else {
               setFormData((prev: any) => ({
                 ...prev,
@@ -822,19 +853,21 @@ export const useFormActions = ({
     const isKidsClub =
       enquiryTypeData?.slug === 'externalUserKidsClub' ||
       formData.enquiry_type === 'KidsClub' ||
-      slug === 'createEnquiryKidsClubForm' 
+      slug === 'createEnquiryKidsClubForm' ||
+      enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+
+    const actualIsStaffChild = formData['is_staff_child'] === 'yes' || formData['is_the_student_staff_child'] === 'yes'
+    const enquiryId = url?.split('/')?.pop()
 
     const dataToPass = {
       ...appendRequest,
+      is_student_staff_child: isKidsClub ? actualIsStaffChild : appendRequest.is_student_staff_child,
       data: isKidsClub
         ? {
             enquiry_type: 'KidsClub',
             student_type: String(formData['student_type.id'] || formData['student_type'] || 'Vibgyor'),
-            is_student_staff_child:
-              formData['is_staff_child'] === 'yes' ||
-              formData['is_the_student_staff_child'] === 'yes' ||
-              formData['is_student_staff_child'] === true,
-            employee_id: Number(formData['employee_id'] || 0),
+            is_student_staff_child: actualIsStaffChild,
+            ...(actualIsStaffChild && formData['employee_id'] ? { employee_id: String(formData['employee_id']) } : {}),
             'academic_year.id': Number(formData['academic_year.id']),
             'academic_year.value': String(formData['academic_year.value'] || ''),
             'school_location.id': Number(formData['school_location.id'] || formData['kidsclub_location.id']),
@@ -866,7 +899,8 @@ export const useFormActions = ({
             'student_details.gender.value': String(formData['student_details.gender.value'] || ''),
             'student_details.division.value': String(
               formData['student_details.division.value'] || formData['student_details.division'] || ''
-            )
+            ),
+            ...(requestParams?.reqType === 'PATCH' && enquiryId && enquiryId !== 'create' && { enquiryId: enquiryId })
           }
     : {
         ...removeObjectNullAndEmptyKeys(reqObj),
@@ -961,9 +995,9 @@ export const useFormActions = ({
     }
 }
 
-    const enquiryId = url?.split('/')?.pop()
 
-    if (activeStageName === ENQUIRY_STAGES?.ENQUIRY && !skipReopenCheckRef.current && !isKidsClub) {
+
+    if ((activeStageName === ENQUIRY_STAGES?.ENQUIRY || isKidsClub) && !skipReopenCheckRef.current) {
       const reopenParams = {
         url: `marketing/enquiry/handleReopn`,
         authToken,
@@ -972,7 +1006,7 @@ export const useFormActions = ({
           'student_details.last_name': formData['student_details.last_name'],
           'student_details.dob': formData['student_details.dob'],
           'academic_year.id': formData['academic_year.id'],
-          enquiry_type: formData['enquiry_type'],
+          enquiry_type: isKidsClub ? 'KidsClub' : formData['enquiry_type'],  
           ...(enquiryId && enquiryId !== 'create' && { enquiry_id: enquiryId })
         }
       }
@@ -997,7 +1031,7 @@ export const useFormActions = ({
               formData['parent_details.father_details.mobile'] ||
               formData['parent_details.mother_details.mobile'] ||
               formData['parent_details.guardian_details.mobile'] || '',
-            enquiryType: formData?.enquiry_type || 'Kids Club',
+            enquiryType: formData?.enquiry_type ,
             ...(enquiryId && enquiryId !== 'create' && { enquiry_id: enquiryId })
           }
         }
@@ -1011,10 +1045,9 @@ export const useFormActions = ({
       }
     }
 
-    const apiUrl = isKidsClub ? `marketing/external/enquiry/create` : (url ?? `marketing/enquiry/create`)
-
+    const Url = url
     let resp
-    if (requestParams?.reqType === 'PATCH') resp = await patchRequest({ url: apiUrl, data: dataToPass })
+    if (requestParams?.reqType === 'PATCH') resp = await patchRequest({ url: Url, data: dataToPass })
     else {
       if (
         activeStageName === ENQUIRY_STAGES?.ENQUIRY &&
@@ -1034,7 +1067,7 @@ export const useFormActions = ({
           return
         }
       }
-      resp = await postRequest({ url: apiUrl, data: dataToPass })
+      resp = await postRequest({ url: Url, data: dataToPass })
     }
 
     if (submitPropsFunction) {
@@ -1088,6 +1121,8 @@ export const useFormActions = ({
     return formTouched ? !checkerrorMessage() : true
   }, [formTouched, checkerrorMessage])
 
+  const isEmployeeVerified = !!formData?.employee_details
+
   return {
     handleChange,
     handleAddMore,
@@ -1101,6 +1136,8 @@ export const useFormActions = ({
     handleDuplicateByEmailPhone,
     checkerrorMessage,
     handleformValidation,
-    formTouched
+    formTouched,
+    isEmployeeVerified 
+
   }
 }

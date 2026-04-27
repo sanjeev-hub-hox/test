@@ -22,8 +22,6 @@ import DownArrow from 'src/@core/CustomComponent/DownArrow/DownArrow'
 import { getRequest } from 'src/services/apiService'
 import InfoIcon from '@mui/icons-material/Info'
 import PhoneNumberField from 'src/components/PhoneNumberField'
-import toast from 'react-hot-toast'
-import { checkValidationsZod } from 'src/utils/formValidations'
 
 const CommonAutocomplete = ({
   label,
@@ -36,8 +34,7 @@ const CommonAutocomplete = ({
   note,
   infoDialog,
   id,
-  required,
-  helperText
+  required
 }: any) => {
   return (
     <Autocomplete
@@ -58,7 +55,6 @@ const CommonAutocomplete = ({
           label={
             <Box sx={{ display: 'flex', alignItems: 'normal' }}>
               {label}
-              {required}
               {infoDialog && note && (
                 <span>
                   <Tooltip title={note}>
@@ -70,7 +66,6 @@ const CommonAutocomplete = ({
           }
           variant='outlined'
           error={error}
-          helperText={helperText}
           InputProps={{
             ...params.InputProps,
             endAdornment: (
@@ -88,16 +83,9 @@ const CommonAutocomplete = ({
   )
 }
 
-export default function ParentsDetails({
-  formData,
-  handleChange,
-  handleParentFieldChange,
-  setFormData,
-  enquiryTypeData,
-  slug
-}: any) {
+export default function ParentsDetails({ formData, handleChange, handleParentFieldChange, setFormData }: any) {
   const [dropdownData, setDropdownData] = useState<any>({})
-  const [, setCityOptions] = useState<any>([])
+  const [cityOptions, setCityOptions] = useState<any>([])
 
   const setOptionsFormat = (array: any, key: any) => {
     const arrayData = array
@@ -203,18 +191,12 @@ export default function ParentsDetails({
   }, [])
 
   const getFieldCondition = (fieldName: string) => {
-    const isIVT =
-      enquiryTypeData?.slug === 'ivtEnquiry' ||
-      enquiryTypeData?.slug === 'ivt' ||
-      slug === 'ivtEnquiryForm' ||
-      slug === 'ivt'
     switch (fieldName) {
       case 'father':
         return (
           formData['parent_details.is_parent_single'] == 'no' ||
           (formData['parent_details.is_parent_single'] == 'yes' &&
-            formData['parent_details.single_parent_type'] == 'father') ||
-          isIVT
+            formData['parent_details.single_parent_type'] == 'father')
         )
         break
 
@@ -222,15 +204,13 @@ export default function ParentsDetails({
         return (
           formData['parent_details.is_parent_single'] == 'no' ||
           (formData['parent_details.is_parent_single'] == 'yes' &&
-            formData['parent_details.single_parent_type'] == 'mother') ||
-          isIVT
+            formData['parent_details.single_parent_type'] == 'mother')
         )
         break
       case 'guardian':
         return (
-          (formData['parent_details.is_parent_single'] == 'yes' &&
-            formData['parent_details.single_parent_type'] == 'guardian') ||
-          isIVT
+          formData['parent_details.is_parent_single'] == 'yes' &&
+          formData['parent_details.single_parent_type'] == 'guardian'
         )
 
         break
@@ -247,18 +227,6 @@ export default function ParentsDetails({
   }
 
   const handlePincodeChange = async (fieldName: any, value: any) => {
-    if (!/^\d*$/.test(value)) {
-      toast.error('Only numeric values allowed')
-
-      return
-    }
-
-    if (value.length > 6) {
-      toast.error('Pincode must be exactly 6 digits')
-
-      return
-    }
-
     if (value?.length == 6) {
       switch (fieldName) {
         case 'parent_details.father_details.pin_code':
@@ -506,7 +474,7 @@ export default function ParentsDetails({
                     type: 'regex',
                     validation: true,
                     error_message: 'Invalid Pan number',
-                    regexFormat: '^[A-Z]{5}[0-9]{4}[A-Z]{1}$'
+                    regexFormat: '[A-Z]{5}[0-9]{4}[A-Z]{1}'
                   }
                 ],
                 false,
@@ -818,20 +786,6 @@ export default function ParentsDetails({
                     type: 'is_required',
                     validation: false,
                     error_message: 'Field is required'
-                  },
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {
-                    type: 'max_length',
-                    validation: true,
-                    maxLength: 200
                   }
                 ],
                 false,
@@ -842,7 +796,6 @@ export default function ParentsDetails({
                 }
               )
             }}
-            inputProps={{ maxLength: 200 }}
             InputLabelProps={{ shrink: formData['parent_details.father_details.office_address'] ? true : false }}
             error={Boolean(formData?.error?.['parent_details.father_details.office_address'])}
             helperText={
@@ -954,7 +907,6 @@ export default function ParentsDetails({
               )
             }}
             InputLabelProps={{ shrink: formData['parent_details.father_details.pin_code'] ? true : false }}
-            inputProps={{ maxLength: 6 }}
             error={Boolean(formData?.error?.['parent_details.father_details.pin_code'])}
             helperText={
               Boolean(formData?.error?.['parent_details.father_details.pin_code']) &&
@@ -1548,7 +1500,7 @@ export default function ParentsDetails({
                     type: 'regex',
                     validation: true,
                     error_message: 'Invalid Pan number',
-                    regexFormat: '^[A-Z]{5}[0-9]{4}[A-Z]{1}$'
+                    regexFormat: '[A-Z]{5}[0-9]{4}[A-Z]{1}'
                   }
                 ],
                 false,
@@ -1859,20 +1811,6 @@ export default function ParentsDetails({
                     type: 'is_required',
                     validation: false,
                     error_message: 'Field is required'
-                  },
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {
-                    type: 'max_length',
-                    validation: true,
-                    maxLength: 200
                   }
                 ],
                 false,
@@ -1883,7 +1821,6 @@ export default function ParentsDetails({
                 }
               )
             }}
-            inputProps={{ maxLength: 200 }}
             InputLabelProps={{ shrink: formData['parent_details.mother_details.office_address'] ? true : false }}
             error={Boolean(formData?.error?.['parent_details.mother_details.office_address'])}
             helperText={
@@ -1995,7 +1932,6 @@ export default function ParentsDetails({
               )
             }}
             InputLabelProps={{ shrink: formData['parent_details.mother_details.pin_code'] ? true : false }}
-            inputProps={{ maxLength: 6 }}
             error={Boolean(formData?.error?.['parent_details.mother_details.pin_code'])}
             helperText={
               Boolean(formData?.error?.['parent_details.mother_details.pin_code']) &&
@@ -2419,21 +2355,6 @@ export default function ParentsDetails({
                     type: 'is_required',
                     validation: getFieldCondition('guardian') ? true : false,
                     error_message: 'Field is required'
-                  },
-                  {
-                    type: 'numeric',
-                    validation: false,
-                    error_message: ''
-                  },
-                  {
-                    type: 'alphanumeric',
-                    validation: false,
-                    error_message: ''
-                  },
-                  {
-                    type: 'email',
-                    validation: true,
-                    error_message: 'Please enter valid email'
                   }
                 ],
                 false,
@@ -2564,7 +2485,7 @@ export default function ParentsDetails({
             onChange={(value: any) => {
               //handleOptionChange('academic_year', value)
               handleChange(
-                'parent_details.guardian_details.relationship_with_child',
+                'parent_details.mother_details.relationship_with_child',
                 value,
                 [
                   {
@@ -2578,7 +2499,7 @@ export default function ParentsDetails({
                 {
                   input_type: 'masterDropdownExternal',
                   name: 'relationship_with_child',
-                  msterOptions: dropdownData?.relationships,
+                  msterOptions: cityOptions,
                   key: ['relationship_with_child'],
                   type: 'enquiryDetails'
                 }
@@ -2611,22 +2532,8 @@ export default function ParentsDetails({
                 [
                   {
                     type: 'is_required',
-                    validation: false,
+                    validation: getFieldCondition('guardian') ? true : false,
                     error_message: 'Field is required'
-                  },
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {
-                    type: 'max_length',
-                    validation: true,
-                    maxLength: 200
                   }
                 ],
                 false,
@@ -2637,9 +2544,8 @@ export default function ParentsDetails({
                 }
               )
             }}
-            inputProps={{ maxLength: 200 }}
             InputLabelProps={{ shrink: formData['parent_details.guardian_details.house'] ? true : false }}
-            required={false}
+            required={getFieldCondition('guardian')}
             error={Boolean(formData?.error?.['parent_details.guardian_details.house'])}
             helperText={
               Boolean(formData?.error?.['parent_details.guardian_details.house']) &&
@@ -2661,22 +2567,8 @@ export default function ParentsDetails({
                 [
                   {
                     type: 'is_required',
-                    validation: false,
+                    validation: getFieldCondition('guardian') ? true : false,
                     error_message: 'Field is required'
-                  },
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {
-                    type: 'max_length',
-                    validation: true,
-                    maxLength: 200
                   }
                 ],
                 false,
@@ -2687,9 +2579,8 @@ export default function ParentsDetails({
                 }
               )
             }}
-            inputProps={{ maxLength: 200 }}
             InputLabelProps={{ shrink: formData['parent_details.guardian_details.street'] ? true : false }}
-            required={false}
+            required={getFieldCondition('guardian')}
             error={Boolean(formData?.error?.['parent_details.guardian_details.street'])}
             helperText={
               Boolean(formData?.error?.['parent_details.guardian_details.street']) &&
@@ -2711,22 +2602,8 @@ export default function ParentsDetails({
                 [
                   {
                     type: 'is_required',
-                    validation: false,
+                    validation: getFieldCondition('guardian') ? true : false,
                     error_message: 'Field is required'
-                  },
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {},
-                  {
-                    type: 'max_length',
-                    validation: true,
-                    maxLength: 200
                   }
                 ],
                 false,
@@ -2737,9 +2614,8 @@ export default function ParentsDetails({
                 }
               )
             }}
-            inputProps={{ maxLength: 200 }}
             InputLabelProps={{ shrink: formData['parent_details.guardian_details.landmark'] ? true : false }}
-            required={false}
+            required={getFieldCondition('guardian')}
             error={Boolean(formData?.error?.['parent_details.guardian_details.landmark'])}
             helperText={
               Boolean(formData?.error?.['parent_details.guardian_details.landmark']) &&
@@ -2756,7 +2632,9 @@ export default function ParentsDetails({
             onChange={e => {
               const value = e.target.value
               let error = ''
-              if (value && !/^\d{12}$/.test(value)) {
+              if (getFieldCondition('guardian') && !value) {
+                error = 'Field is required'
+              } else if (value && !/^\d{12}$/.test(value)) {
                 error = 'Invalid Aadhar number'
               }
               setFormData((prev: { error: any }) => ({
@@ -2784,7 +2662,12 @@ export default function ParentsDetails({
             value={formData['parent_details.guardian_details.pan']}
             onChange={e => {
               const value = e.target.value.toUpperCase()
-              const error = checkValidationsZod([], value, 'pan')
+              let error = ''
+              if (getFieldCondition('guardian') && !value) {
+                error = 'Field is required'
+              } else if (value && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(value)) {
+                error = 'Invalid PAN number'
+              }
               setFormData((prev: { error: any }) => ({
                 ...prev,
                 ['parent_details.guardian_details.pan']: value,
@@ -2810,7 +2693,9 @@ export default function ParentsDetails({
               const value = e.target.value
               handlePincodeChange('parent_details.guardian_details.pin_code', value)
               let error = ''
-              if (value && !/^\d{6}$/.test(value)) {
+              if (getFieldCondition('guardian') && !value) {
+                error = 'This field is required'
+              } else if (value && !/^\d{6}$/.test(value)) {
                 error = 'Invalid Pincode'
               }
               setFormData((prev: { error: any }) => ({
@@ -2823,7 +2708,6 @@ export default function ParentsDetails({
               }))
             }}
             InputLabelProps={{ shrink: Boolean(formData['parent_details.guardian_details.pin_code']) }}
-            inputProps={{ maxLength: 6 }}
             error={Boolean(formData?.error?.['parent_details.guardian_details.pin_code'])}
             helperText={formData?.error?.['parent_details.guardian_details.pin_code'] || ''}
           />

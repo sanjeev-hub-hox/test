@@ -55,9 +55,9 @@ export const authOptions: NextAuthOptions = {
       return await refreshAccessToken(token)
     },
 
-    async redirect({ url, baseUrl }) {
-      return url.startsWith(baseUrl) ? url : baseUrl
-    }
+    // async redirect({ url, baseUrl }) {
+    //   return url.startsWith(baseUrl) ? url : baseUrl
+    // }
   },
 
   cookies: {

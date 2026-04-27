@@ -80,6 +80,7 @@ interface FieldRendererProps {
   fileList: any
   handleRemoveAllFiles: () => void
   formfields: any
+  isEmployeeVerified?: boolean
 }
 
 const FieldRenderer: React.FC<FieldRendererProps> = ({
@@ -101,7 +102,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
   getInputProps,
   fileList,
   handleRemoveAllFiles,
-  formfields
+  formfields,
+  isEmployeeVerified
 }) => {
   const renderLabel = (label: string, note?: string) => (
     <Box sx={{ display: 'flex', alignItems: 'normal' }}>
@@ -250,7 +252,24 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             name={item?.['input_field_name']}
             value={formData?.[item?.['input_field_name']] || ''}
             InputProps={{
-              readOnly: item?.validations?.[10]?.validation ? true : false
+              readOnly: item?.validations?.[10]?.validation ? true : false,
+              ...(item?.['input_field_name'] === 'employee_id' && {
+                endAdornment: isEmployeeVerified ? (
+                  <img
+                    src='/images/icons/green-tick.svg'
+                    alt='verified'
+                    style={{ width: 20, height: 20, flexShrink: 0 }}
+                  />
+                ) : formData?.error?.['employee_id'] ? (
+                  <img
+                    src='/images/icons/red-cross.svg'
+                    alt='invalid'
+                    style={{ width: 20, height: 20, flexShrink: 0 }}
+                  />
+                ) : formData?.['employee_id'] ? (
+                  <span style={{ fontSize: 12, color: '#999' }}>...</span>
+                ) : null
+              })
             }}
             inputProps={{
               maxLength: item?.validations?.[12]?.validation && item?.validations?.[12]?.maxLength ? item?.validations?.[12]?.maxLength : 200

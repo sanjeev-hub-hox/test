@@ -75,7 +75,7 @@ export default function ReferralConfirmation() {
         setReferringSourceName(enquiry.referring_source_name ?? '')
 
       } catch (error) {
-        console.error('Error fetching referral details:', error)
+        // console.error('Error fetching referral details:', error)
       } finally {
         setLoading(false)
       }
@@ -140,7 +140,7 @@ export default function ReferralConfirmation() {
   // action = 'referral' → parent is verifying → show referrer's name, ask for referrer's phone
   // action = 'referrer' → referrer is verifying → show parent's name, ask for parent's phone
   const displayName = action === 'referral' ? referringSourceName : referredParentName
-  const nameLabel = action === 'referral' ? "Referrer's Name:" : "Parent's Name:"
+  // const nameLabel = action === 'referral' ? "Referrer's Name:" : "Parent's Name:"
   const phoneLabel = action === 'referral'
     ? "Please confirm by entering the referrer's phone number."
     : "Please confirm by entering the parent's phone number."

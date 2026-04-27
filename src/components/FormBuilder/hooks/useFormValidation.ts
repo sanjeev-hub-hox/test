@@ -141,8 +141,18 @@ export const useFormValidation = ({
     else if (selectedSubSource.includes('Corporate')) requiredField = 'enquiry_corporate_source'
     else if (selectedSubSource.includes('Pre School')) requiredField = 'enquiry_school_source'
 
+
     if (requiredField) {
-      const error = checkValidations(BASE_VALIDATION_ARRAY, formData[`${requiredField}.id`], requiredField)
+      // ✅ Also check other_details.referral_source as fallback
+      // because some enquiries store employee source there instead of root level
+      const fieldValue = formData[`${requiredField}.id`] || 
+        formData[`${requiredField}.value`] ||
+        (requiredField === 'enquiry_employee_source' && (
+          formData['other_details.referral_source.id'] ||
+          formData['other_details.referral_source.email'] // employee referral stored differently
+        )) || null
+
+      const error = checkValidations(BASE_VALIDATION_ARRAY, fieldValue, requiredField)
       if (error) errors[requiredField] = error
     }
 
@@ -201,7 +211,14 @@ export const useFormValidation = ({
 
   const validateExternalKIdsClubEnquiryFields = useCallback(() => {
     const errors: any = {}
-    const external_fields = ['academic_year', 'school_location']
+    const external_fields = ['academic_year']
+    
+    // Some dynamic Kids Club forms use kidsclub_location instead of school_location
+    if (formData['kidsclub_location.id'] && !formData['school_location.id']) {
+      external_fields.push('kidsclub_location')
+    } else {
+      external_fields.push('school_location')
+    }
 
     external_fields.forEach((val: any) => {
       const error = checkValidations(BASE_VALIDATION_ARRAY, formData[`${val}.id`], val)
@@ -209,7 +226,26 @@ export const useFormValidation = ({
     })
 
     const isKidsClubFlow =
-      (enquiryTypeData && enquiryTypeData?.slug === 'externalUserKidsClub') || slug === 'externalUserKidsClub'
+      (enquiryTypeData && enquiryTypeData?.slug === 'externalUserKidsClub') ||
+      slug === 'externalUserKidsClub' ||
+      slug === 'createEnquiryKidsClubForm' ||
+      formData?.enquiry_type === 'KidsClub'
+
+    if (isKidsClubFlow) {
+      const isStaffChild = formData['is_staff_child'] === 'yes' || formData['is_the_student_staff_child'] === 'yes'
+      if (isStaffChild) {
+        if (!formData['employee_id']) {
+          errors['employee_id'] = 'Employee ID is required for staff child'
+        } else if (!formData['employee_details']) {
+          errors['employee_id'] = formData?.error?.['employee_id'] || 'Please enter a valid Employee ID'
+        }
+      }
+
+      const currentStudentType = formData['student_type.id'] || formData['student_type']
+      if (currentStudentType !== 'Vibgyor Student' && currentStudentType !== 'Non-Vibgyor Student') {
+         errors['student_type'] = 'Student Type is required'
+      }
+    }
 
     if (Object.keys(errors).length > 0 && isKidsClubFlow) {
       return { errors, status: true }

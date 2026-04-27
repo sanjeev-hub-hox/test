@@ -46,71 +46,57 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
   const [selectedOption, setSelectedOption] = useState<ParentOption | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const { setGlobalState } = useGlobalContext()
-  const router = useRouter()
-  const { id: enquiryId } = router.query // Get enquiry ID from Next.js router
 
-  // Helper to get parent name
-  const getParentName = (parent?: ParentDetails) => {
-    if (!parent) return ''
-    const fn = (parent.first_name || '').trim()
-    const ln = (parent.last_name || '').trim()
-    return fn || ln ? `${fn} ${ln}`.trim() : ''
+  const buildParentName = (enq?: EnrollmentOption): string => {
+    if (!enq) return ''
+    if (enq.parent_name?.trim()) return enq.parent_name.trim()
+    const nameFrom = (p?: { first_name?: string; last_name?: string }) =>
+      p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : ''
+    return (
+      nameFrom(enq.parent_details?.father_details) ||
+      nameFrom(enq.parent_details?.mother_details) ||
+      nameFrom(enq.parent_details?.guardian_details) ||
+      ''
+    )
   }
 
-  // Flatten enrollment data into individual parent options
-  const flattenToParentOptions = (enrollmentData: EnrollmentOption[]): ParentOption[] => {
-    const flattened: ParentOption[] = []
-
-    enrollmentData.forEach(enq => {
-      const { parent_details } = enq
-
-      if (parent_details?.father?.mobile) {
-        flattened.push({
-          id: `${enq.id}-father`,
-          enrollment_number: enq.enrollment_number,
-          academic_year: enq.academic_year,
-          student_name: enq.student_name,
-          parent_type: 'Father',
-          parent_name: getParentName(parent_details.father),
-          parent_phone: parent_details.father.mobile,
-          parent_email: parent_details.father.email,
-          original_data: enq
-        })
+  // Pre-load when editing an existing record — read from formData.referral_source directly
+  useEffect(() => {
+    const referral = formData?.referral_source
+    if (referral?.type === 'parent' && referral?.id && !selectedOption) {
+      const fetchById = async () => {
+        try {
+          setGlobalState({ isLoading: true })
+          const params = {
+            url: `marketing/enquiry/getEnrollmentAndParentNumber?search=${encodeURIComponent(referral.meta?.enrollment_number || referral.id)}`
+          }
+          const res = await getRequest(params)
+          const data = Array.isArray(res?.data) ? res.data : []
+          const found = data.find((p: any) => String(p.id) === String(referral.id))
+          if (found) {
+            setSelectedOption(found)
+            setInputValue(found.parent_phone || '')
+            setOptions([found])
+          }
+        } catch (err) {
+          // console.error('Error pre-loading parent:', err)
+        } finally {
+          setGlobalState({ isLoading: false })
+        }
       }
+      fetchById()
+    }
+  }, [])
 
-      if (parent_details?.mother?.mobile) {
-        flattened.push({
-          id: `${enq.id}-mother`,
-          enrollment_number: enq.enrollment_number,
-          academic_year: enq.academic_year,
-          student_name: enq.student_name,
-          parent_type: 'Mother',
-          parent_name: getParentName(parent_details.mother),
-          parent_phone: parent_details.mother.mobile,
-          parent_email: parent_details.mother.email,
-          original_data: enq
-        })
-      }
+  // Reset when sub-source type is changed away from Parent
+  useEffect(() => {
+    if (!EnrollmentParentSource) {
+      setSelectedOption(null)
+      setInputValue('')
+      setOptions([])
+    }
+  }, [EnrollmentParentSource])
 
-      if (parent_details?.guardian?.mobile) {
-        flattened.push({
-          id: `${enq.id}-guardian`,
-          enrollment_number: enq.enrollment_number,
-          academic_year: enq.academic_year,
-          student_name: enq.student_name,
-          parent_type: 'Guardian',
-          parent_name: getParentName(parent_details.guardian),
-          parent_phone: parent_details.guardian.mobile,
-          parent_email: parent_details.guardian.email,
-          original_data: enq
-        })
-      }
-    })
-
-    return flattened
-  }
-
-  // Fetch function for search
   const fetchOptions = async (search: string) => {
     if (!EnrollmentParentSource) return
     try {
@@ -123,8 +109,8 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
       setFlatOptions(flattened)
       return flattened
     } catch (err) {
-      setFlatOptions([])
-      return []
+      // console.error('Error fetching parent source:', err)
+      setOptions([])
     } finally {
       setGlobalState({ isLoading: false })
     }

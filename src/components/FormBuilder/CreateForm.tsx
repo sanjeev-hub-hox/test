@@ -288,7 +288,8 @@ export default function CreateForm({
     checkDependentValue,
     saveFormData,
     handleDuplicateByEmailPhone,
-    handleformValidation
+    handleformValidation,
+    isEmployeeVerified
   } = useFormActions({
     formData,
     setFormData,
@@ -628,23 +629,15 @@ export default function CreateForm({
       setFormData(_formData) ///
 
       const objNew: any = {}
-      if (attachExternalFields || slug == 'enquiryStudentDetailRegistrationForm') {
+      if (attachExternalFields || slug == 'enquiryStudentDetailRegistrationForm') {if (attachExternalFields || slug == 'enquiryStudentDetailRegistrationForm') {
         // Nikhil
-        const external_fields = [
-          'enquiry_mode',
-          'enquiry_source_type',
-          'enquiry_source',
-          'enquiry_sub_source',
-          'enquiry_employee_source',
-          'enquiry_parent_source',
-          'enquiry_school_source',
-          'enquiry_corporate_source'
-        ]
+        const external_fields = ['enquiry_mode', 'enquiry_source_type', 'enquiry_source', 'enquiry_sub_source']
         external_fields?.map((val: any) => {
           objNew[val] = getNestedProperty(dynamicFormData, val + '.id')
           objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id')
           objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
         })
+        objNew['referral_source'] = getNestedProperty(dynamicFormData, 'referral_source') ?? null
       }
 
       if (externalPSAFields) {
@@ -656,19 +649,31 @@ export default function CreateForm({
         })
       }
 
-      if (externalKidsClubFields) {
-        const external_fields = [
-          'kids_club_type',
-          'kids_club_batch',
-          'kids_club_period_of_service',
-          'kids_club_month',
-          'kids_club_from_cafeteria_opt_for'
-        ]
-        external_fields?.map((val: any) => {
-          objNew[val] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
-        })
+      const external_fields = [
+        'enquiry_mode',
+        'enquiry_source_type',
+        'enquiry_source',
+        'enquiry_sub_source',
+        'enquiry_employee_source',
+        'enquiry_parent_source',
+        'enquiry_school_source',
+        'enquiry_corporate_source'
+      ]
+      external_fields?.map((val: any) => {
+        objNew[val] = getNestedProperty(dynamicFormData, val + '.id')
+        objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id')
+        objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
+      })
+
+      if (
+        !objNew['enquiry_employee_source.id'] && 
+        dynamicFormData?.other_details?.referral_source?.type === 'employee'
+      ) {
+        const referralSource = dynamicFormData.other_details.referral_source
+        objNew['enquiry_employee_source.id'] = referralSource.id
+        objNew['enquiry_employee_source.value'] = referralSource.email || ''
+        objNew['enquiry_employee_source.name'] = referralSource.name || ''
+        objNew['enquiry_employee_source.number'] = referralSource.phone || ''
       }
 
       if (
@@ -740,14 +745,47 @@ export default function CreateForm({
         )
       }
 
-      if (enquiryTypeData && enquiryTypeData?.slug == 'externalUserKidsClub') {
-        const external_fields = ['academic_year', 'school_location']
+      const isKidsClubForm =
+        enquiryTypeData?.slug === 'externalUserKidsClub' ||
+        dynamicFormData?.enquiry_type === 'KidsClub' ||
+        slug === 'createEnquiryKidsClubForm' ||
+        enquiryTypeData?.name?.includes('Kids club');
+
+      if (isKidsClubForm) {
+        const external_fields = ['academic_year', 'school_location', 'student_type']
         external_fields?.map((val: any) => {
-          objNew[val] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
+          objNew[val] = getNestedProperty(dynamicFormData, val + '.id') || getNestedProperty(dynamicFormData, val)
+          objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id') || getNestedProperty(dynamicFormData, val)
+          objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value') || getNestedProperty(dynamicFormData, val)
         })
         objNew['enquiry_date'] = dynamicFormData?.enquiry_date || dayjs()
+        const isStaffChildVal =  dynamicFormData?.other_details?.is_student_staff_child
+        const staffChildStatus = isStaffChildVal === true ? 'yes' : 'no'
+        objNew['is_staff_child'] = staffChildStatus
+        objNew['is_the_student_staff_child'] = staffChildStatus
+        objNew['employee_id'] = dynamicFormData?.employee_id || dynamicFormData?.other_details?.employee_id || ''
+        
+        const studentType = dynamicFormData?.student_type || dynamicFormData?.other_details?.student_type || ''
+        objNew['student_type'] = studentType
+        objNew['student_type.id'] = studentType
+        objNew['student_type.value'] = studentType
+
+        objNew['student_details.division.value'] = dynamicFormData?.division?.value || ''
+        objNew['student_details.division'] = dynamicFormData?.division?.value || ''
+        objNew['division'] = dynamicFormData?.division?.value || ''
+        objNew['division.value'] = dynamicFormData?.division?.value || ''
+        objNew['enrollment_no'] = dynamicFormData?.other_details?.enrollment_number || ''
+        objNew['employee_id'] = dynamicFormData?.employee_id || dynamicFormData?.other_details?.employee_id || ''
+        
+        objNew['student_details.eligible_grade.value'] = dynamicFormData?.student_details?.eligible_grade || ''
+        objNew['student_details.eligible_grade'] = dynamicFormData?.student_details?.eligible_grade || ''
+        objNew['eligible_grade'] = dynamicFormData?.student_details?.eligible_grade || ''
+        objNew['eligible_grade.value'] = dynamicFormData?.student_details?.eligible_grade || ''
+
+        objNew['kidsclub_location'] = dynamicFormData?.school_location?.value || ''
+        objNew['kidsclub_location.id'] = dynamicFormData?.school_location?.id || ''
+        objNew['kidsclub_location.value'] = dynamicFormData?.school_location?.value || ''
+
         if (slug == 'enquiryStudentDetailRegistrationForm') {
           objNew['enquiry_number'] = dynamicFormData?.enquiry_number
           objNew['enquiry_type'] = dynamicFormData?.enquiry_type
@@ -833,7 +871,8 @@ export default function CreateForm({
         ...objNew
       }))
     }
-  }, [dynamicFormData, formfields])
+  }
+}, [dynamicFormData, formfields])
 
   const renderExternalFields = () => {
     return (
@@ -891,52 +930,36 @@ export default function CreateForm({
           {String(formData['enquiry_sub_source.value'] || '').includes('Employee') && (
             <Grid item xs={4} md={4}>
               <EnquiryEmployeeSource
-                handleChange={handleChange}
-                val={formData['enquiry_employee_source.id']}
                 enquiryEmployeeSource={formData['enquiry_sub_source.id']}
-                validation={validationArray}
                 formData={formData}
                 setFormData={setFormData}
-                infoDialog={infoDialog}
               />
             </Grid>
           )}
           {String(formData['enquiry_sub_source.value'] || '').includes('Parent') && (
             <Grid item xs={4} md={4}>
               <EnrollmentParentSource
-                handleChange={handleChange}
-                val={formData['enquiry_parent_source.id']}
                 EnrollmentParentSource={formData['enquiry_sub_source.id']}
-                validation={validationArray}
                 formData={formData}
                 setFormData={setFormData}
-                infoDialog={infoDialog}
               />
             </Grid>
           )}
           {String(formData['enquiry_sub_source.value'] || '').includes('Corporate') && (
             <Grid item xs={4} md={4}>
               <EnquiryCorporateSource
-                handleChange={handleChange}
-                val={formData['enquiry_corporate_source.id']}
                 enquiryCorporateSource={formData['enquiry_sub_source.id']}
-                validation={validationArray}
                 formData={formData}
                 setFormData={setFormData}
-                infoDialog={infoDialog}
               />
             </Grid>
           )}
           {String(formData['enquiry_sub_source.value'] || '').includes('Pre School') && (
             <Grid item xs={4} md={4}>
               <EnquirySchoolSource
-                handleChange={handleChange}
-                val={formData['enquiry_school_source.id']}
                 enquirySchoolSource={formData['enquiry_sub_source.id']}
-                validation={validationArray}
                 formData={formData}
                 setFormData={setFormData}
-                infoDialog={infoDialog}
               />
             </Grid>
           )}
@@ -1203,6 +1226,7 @@ export default function CreateForm({
                         fileList={fileList}
                         handleRemoveAllFiles={handleRemoveAllFiles}
                         formfields={formfields}
+                        isEmployeeVerified={isEmployeeVerified}
                       />
                     </Grid>
                   ) : null}

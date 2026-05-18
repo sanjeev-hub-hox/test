@@ -4,6 +4,27 @@ import { logoutUserData } from '../services/authService'
 import { toast } from 'react-hot-toast'
 import { getSession } from 'next-auth/react'
 
+/** Avoid redirect loops when the app is already showing the maintenance page. */
+const isOnMaintenancePage = () =>
+  typeof window !== 'undefined' &&
+  (window.location.pathname === '/503' || window.location.pathname.startsWith('/503/'))
+
+const redirectToForbidden = () => {
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname !== '/403' &&
+    !window.location.pathname.startsWith('/403/')
+  ) {
+    window.location.href = '/403'
+  }
+}
+
+const isForbiddenPayload = (payload: any) => {
+  const statusCode = payload?.statusCode ?? payload?.status_code ?? payload?.code ?? payload?.error?.status
+
+  return Number(statusCode) === 403
+}
+
 const serviceURLList: any = {
   marketing: process.env.NEXT_PUBLIC_API_BASE_URL,
   admin: process.env.NEXT_PUBLIC_ADMIN_PANEL_BASE_URL,
@@ -11,7 +32,9 @@ const serviceURLList: any = {
   finance: process.env.NEXT_PUBLIC_FINANCE_API_BASE_URL,
   transport: process.env.NEXT_PUBLIC_TRANSPORT_API_URL,
   communication: process.env.NEXT_PUBLIC_COMMUNICATION_API_URL,
-  api: process.env.NEXT_PUBLIC_ADMIN_PANEL_BASE_URL
+  api: process.env.NEXT_PUBLIC_ADMIN_PANEL_BASE_URL,
+  academics: process.env.NEXT_PUBLIC_FRONT_ACADEMICS_URL,
+  academicsBE: process.env.NEXT_PUBLIC_ACADEMICS_API_URL,
 }
 const axiosInstance = axios.create({
   baseURL: `${process.env.NEXT_PUBLIC_API_BASE_URL}`
@@ -46,7 +69,11 @@ const handleResponseError = (error: any) => {
 
   switch (error?.response?.status) {
     case 400:
-      toast.error('Error - Bad Request')
+      if (error?.response?.data?.errorMessage || error?.response?.data?.message) {
+        toast.error(error.response.data.errorMessage || error.response.data.message)
+      } else {
+        toast.error('Error - Bad Request')
+      }
       break
     case 401:
       toast.error('Unauthenticated Logging out')
@@ -54,13 +81,29 @@ const handleResponseError = (error: any) => {
       break
     case 403:
       toast.error('Unauthorized')
-      window.location.href = '/403'
+      redirectToForbidden()
       break
     case 500:
       toast.error('There Is An Internal Error')
       break
+    case 503:
+      if (!isOnMaintenancePage()) {
+        toast.error('Site is under maintenance')
+        window.location.href = '/503'
+      }
+      break
+    case 504:
+      if (!isOnMaintenancePage()) {
+        toast.error('Site is under maintenance')
+        window.location.href = '/503'
+      }
+      break
     default:
-      toast.error('There Is An Internal Error')
+      if (error?.response?.data?.errorMessage || error?.response?.data?.message) {
+        toast.error(error.response.data.errorMessage || error.response.data.message)
+      } else {
+        toast.error('There Is An Internal Error')
+      }
   }
 
   if (error?.response?.data) {
@@ -90,7 +133,7 @@ async function httpRequest(
     }
     //const token = getToken()
     const session: any = await getSession()
-    const token = 'eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJOV01uNDNhNmxPcnU4Y1Z2Nkp5dUdXUUtyYzdIOXVJQnRvaThjUHdYeWhnIn0.eyJleHAiOjE3NzczMTE0NDgsImlhdCI6MTc3NzMwOTY0OCwianRpIjoiMzY0ZTIyZmMtOWJlNy00NGQ2LWEzNGYtYWFmOGQ4ZWVjMDA2IiwiaXNzIjoiaHR0cHM6Ly9nYXRld2F5LmFtcGVyc2FuZGdyb3VwLmluL3JlYWxtcy9hbXBlcnNhbmQtaW50ZXJuYWwiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiOTZlZGVlM2ItMTIxMC00NjZlLTg2MzQtOGQ2OTFmYjAwYjBkIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiaHViYmxlb3Jpb24tYWRtaW4tcGFuZWwiLCJzZXNzaW9uX3N0YXRlIjoiNjQ4YmIyOTQtZjY3ZC00OTFmLTg2M2MtNDY3NTE0MmRkNDNjIiwiYWNyIjoiMSIsImFsbG93ZWQtb3JpZ2lucyI6WyJodHRwczovL2FkbWluLXBhbmVsLWh1YmJsZW9yaW9uLmh1YmJsZWhveC5jb20iXSwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbImRlZmF1bHQtcm9sZXMtYWQtaW50cmVncmF0aW9uLXRlc3QiLCJvZmZsaW5lX2FjY2VzcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJwcm9maWxlIGVtYWlsIGN1c3RvbVRva2VuU2NvcGUiLCJzaWQiOiI2NDhiYjI5NC1mNjdkLTQ5MWYtODYzYy00Njc1MTQyZGQ0M2MiLCJyZWFsbUZsYWciOiJpbnRlcm5hbCIsInBob25lTnVtYmVyIjoiOTY5OTg5MTQyMCIsImVtYWlsX3ZlcmlmaWVkIjpmYWxzZSwibWFuYWdlciI6IkNOPVJvaGFuIFRoYWxlLE9VPUxlZnQgRW1wbG95ZWUsT1U9VmliZ3lvcixEQz12aWJneW9yc2Nob29scyxEQz1jb20iLCJuYW1lIjoiUFMxIiwiZGVzaWduYXRpb24iOiJUZXN0IFNTTyIsInByZWZlcnJlZF91c2VybmFtZSI6InBzMSIsImdpdmVuX25hbWUiOiJQUzEiLCJlbWFpbCI6InBzMUB2Z29zLm9yZyJ9.M-Cmu_nzhStRIdrlPiaFB4hoBmSy9vGXPCN6NlDAhvPlIwIKFHHIzu64FZeesolBh9XtAWA2mne9UI-nA4-KscTbTtCCH24nb3ha2BvxqrHWESzlruwszkaNG5aMxpZqZF6l_5qMDG09mECrWaUkjwphBuN1_k135xHttF53uRDiQLjxwb5szSIh9ltvZNCeJlCSnCGETB2WCC7f3Lh7egucOzOL954xBbSpUbQ0IdFBlt1kA7a2p_DJ1s6rZKRAidrFXZ8uHjxa74ods5MseuYcgh5Eci_7dEok0tz00mloBRBhgew5AV5k9lKpVR3IuJM4XWLPOjTIqTDYOQjI8w'
+    const token = session?.accessToken
     const apiHeaders = {
       ...(serviceURL === 'mdm' && { Authorization: `Bearer ${process.env.NEXT_PUBLIC_MDM_TOKEN}` }),
       ...(token && serviceURL != 'mdm' && !authToken && { Authorization: `Bearer ${token}` }),
@@ -113,6 +156,11 @@ async function httpRequest(
     }
     const response: AxiosResponse = await axios(config)
     const jsonData = response.data
+
+    if (isForbiddenPayload(jsonData)) {
+      toast.error('Unauthorized')
+      redirectToForbidden()
+    }
 
     return jsonData
 

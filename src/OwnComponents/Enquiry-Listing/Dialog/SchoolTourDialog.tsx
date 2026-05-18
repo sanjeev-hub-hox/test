@@ -23,14 +23,14 @@ import dayjs, { Dayjs } from 'dayjs'
 import { styled } from '@mui/system'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
-import { getRequest, postRequest } from 'src/services/apiService'
+import { getRequest, postRequest, patchRequest } from 'src/services/apiService'
 import { useGlobalContext } from 'src/@core/global/GlobalContext'
 import { useForm, Controller } from 'react-hook-form'
 import style from '../../../pages/enquiry-types/enquiryTypes.module.css'
 import SuccessDialog from 'src/@core/CustomComponent/SuccessDialogBox/SuccessDialog'
-import { useRouter } from 'next/navigation'
 import { convertDate, formatDateShort } from 'src/utils/helper'
 import toast from 'react-hot-toast'
+import { ENQUIRY_STAGES } from 'src/utils/constants'
 
 const CalendarIcon = () => <span className='icon-calendar-1'></span>
 const DownArrow = () => <span style={{ color: '#666666' }} className='icon-arrow-down-1'></span>
@@ -67,6 +67,11 @@ type SchoolTour = {
   enquiryId?: any
   mode?: any
   enquiryType?: string
+  stageType?: string
+  defaultIsStart?: boolean
+  defaultIsReschedule?: boolean
+  defaultIsCancel?: boolean
+  setRefresh?: any
 }
 interface SlotTiming {
   _id: string
@@ -84,8 +89,12 @@ const SchoolTourDialog = ({
   minimized,
   setMinimized,
   enquiryId,
-  mode,
-  enquiryType
+  enquiryType,
+  stageType,
+  defaultIsStart,
+  defaultIsReschedule,
+  defaultIsCancel,
+  setRefresh
 }: SchoolTour) => {
   interface schoolTourForm {
     comment: string
@@ -112,7 +121,7 @@ const SchoolTourDialog = ({
   const [isCancel, setIsCancel] = useState<boolean>(false)
   const [isStart, setIsStart] = useState<boolean>(false)
   const [isRescheduled, setIsRescheduled] = useState<boolean>(false)
-  const { setGlobalState } = useGlobalContext()
+  const { setGlobalState, userInfo } = useGlobalContext()
   const [loadingCount] = useState(0)
   const [schooltourSuccessDialog, setschooltourSuccessDialog] = useState<boolean>(false)
   const [slotTiming, setSlotTiming] = useState<SlotTiming[]>([])
@@ -128,9 +137,9 @@ const SchoolTourDialog = ({
 
   const [options, setOptions] = useState<string[]>([])
   const [activities, setActivities] = useState<string[]>([])
-  const router = useRouter()
 
   const isKidsClub = enquiryType?.toLowerCase()?.includes('kids club')
+  const isParentInteraction = stageType === ENQUIRY_STAGES.PARENT_INTERACTION
   const apiBase = isKidsClub ? 'marketing/kids-club-visit' : 'marketing/school-visit'
 
   useEffect(() => {
@@ -138,7 +147,7 @@ const SchoolTourDialog = ({
     handleView()
     const formattedDate = dayjs(apiVisitDate).format('DD-MM-YYYY')
     slotVisitApi(formattedDate)
-  }, [loadingCount, enquiryId, apiVisitDate, enquiryType])
+  }, [loadingCount, enquiryId, apiVisitDate, enquiryType, defaultIsStart, defaultIsReschedule, defaultIsCancel])
 
   const handleMinimize = () => {
     setMinimized(true)
@@ -201,6 +210,8 @@ const SchoolTourDialog = ({
   }
 
   const SubmitApi = async () => {
+    if (!isStart) return
+
     try {
       // Set loading state to true
       setGlobalState({
@@ -209,42 +220,43 @@ const SchoolTourDialog = ({
 
       const payloadData = {
         activities: activities,
-        comment: reComment
+        comment: reComment,
+        created_by: {
+          user_id: userInfo?.userInfo?.id,
+          user_name: userInfo?.userInfo?.name,
+          email: userInfo?.userInfo?.email
+        }
       }
 
       // Define parameters for the API request
-      const params = {
-        url: isKidsClub ? `${apiBase}/${enquiryId}/checklist` : `${apiBase}/${enquiryId}/complete`,
+      const completeParams = {
+        url: `${apiBase}/${enquiryId}/complete`,
         serviceURL: 'marketing',
-        data: isKidsClub
-          ? {
-              checklists: options.map((opt: any) => ({
-                name: opt.attributes.name,
-                is_checked: activities.includes(opt.attributes.name)
-              })),
-              comment: reComment
-            }
-          : payloadData
+        data: payloadData
       }
 
-      // Make the API request
+      const responseData = await postRequest(completeParams)
 
-      const responseData = await postRequest(params)
-      // Set loading state to false
-      setGlobalState({
-        isLoading: false
-      })
-
-      // Check if the response contains data
       if (responseData?.data) {
-        // Update the state based on the response
+        const stageUpdateParams = {
+          url: `marketing/enquiry/${enquiryId}/move-to-next-stage`,
+          serviceURL: 'marketing',
+          data: {
+            currentStage: stageType || ENQUIRY_STAGES.SCHOOL_VISIT,
+            status: 'Completed'
+          }
+        }
+        await patchRequest(stageUpdateParams)
+
+        setGlobalState({ isLoading: false })
         setIsBooked(true)
         setIsRescheduled(false)
         setIsCancel(false)
         setIsStart(false)
-        //setSchoolTourDialog(false)
+        localStorage.removeItem(`force_active_stage_${enquiryId}`)
         setschooltourSuccessDialog(true)
       } else {
+        setGlobalState({ isLoading: false })
         toast.error(responseData?.message || 'Failed to complete visit')
       }
     } catch (error: any) {
@@ -263,15 +275,17 @@ const SchoolTourDialog = ({
     // Define the parameters for the API request
 
     const params = {
-      url: `${apiBase}/slots?enquiryId=${enquiryId}&date=${date}`, // Replace slotId with the appropriate variable
+      url: isKidsClub
+        ? `${apiBase}/slots/${encodeURIComponent(
+            isParentInteraction ? 'Parent Interaction' : 'Kids Club Visit'
+          )}?enquiryId=${enquiryId}&date=${date}`
+        : `${apiBase}/slots?enquiryId=${enquiryId}&date=${date}`,
       serviceURL: 'marketing'
     }
 
     try {
-      // Make the API request
       const responseData = await getRequest(params)
 
-      // Handle the API response
       if (responseData?.data) {
         setGlobalState({
           isLoading: false
@@ -300,10 +314,11 @@ const SchoolTourDialog = ({
 
     try {
       // Configure the API request
+      const eventName = isParentInteraction ? 'Parent Interaction' : 'Kids Club Visit'
       const params = {
         url: `${apiBase}/${enquiryId}/reschedule`,
         serviceURL: 'marketing',
-        data: payloadData
+        data: isKidsClub ? { ...payloadData, event: eventName } : payloadData
       }
 
       // Make the API request
@@ -354,13 +369,16 @@ const SchoolTourDialog = ({
       // Check if the response contains data
       if (responseData?.data) {
         // Update the state based on the response
-        setIsBooked(true)
+        setIsBooked(false)
         setIsRescheduled(false)
         setIsCancel(false)
         setSchoolTourDialog(false)
-        toast.success('Visit cancelled successfully')
+        if (setRefresh) {
+          setRefresh((prev: any) => !prev)
+        }
+        toast.success(`${isParentInteraction ? 'Interaction' : 'Tour'} cancelled successfully`)
       } else {
-        toast.error(responseData?.message || 'Failed to cancel visit')
+        toast.error(responseData?.message || 'Failed to cancel')
       }
     } catch (error: any) {
       // Handle any errors that occur during the request
@@ -399,10 +417,14 @@ const SchoolTourDialog = ({
         setApiVisitTime(slot) // Slot time as a string
         setApiComment(comment || '') // Comment might be null
 
-        setIsBooked(true)
-        setIsRescheduled(false)
-        setIsCancel(false)
-        setIsStart(false)
+        setIsBooked(!defaultIsReschedule && !defaultIsStart && !defaultIsCancel)
+        setIsRescheduled(!!defaultIsReschedule)
+        setIsCancel(!!defaultIsCancel)
+        setIsStart(!!defaultIsStart)
+
+        if (defaultIsStart) {
+          optionForSubmition()
+        }
       }
     } catch (error: any) {
       // Handle any errors that occur during the request
@@ -422,10 +444,11 @@ const SchoolTourDialog = ({
 
     try {
       // Configure the API request
+      const eventName = isParentInteraction ? 'Parent Interaction' : 'Kids Club Visit'
       const params = {
         url: isKidsClub ? `${apiBase}/${enquiryId}/create` : `${apiBase}/${enquiryId}/schedule`,
         serviceURL: 'marketing',
-        data: isKidsClub ? { ...payloadData, mode: 'Offline' } : payloadData // Adding 'mode' as requested for Kids Club
+        data: isKidsClub ? { ...payloadData, mode: 'Offline', event: eventName } : payloadData // Adding 'mode' and 'event' as requested for Kids Club
       }
 
       // Make the API request
@@ -452,12 +475,14 @@ const SchoolTourDialog = ({
     setIsRescheduled(false)
     setIsCancel(false)
     setIsStart(false)
-    router.refresh()
-    if (!mode) {
-      window.location.reload()
-
-      // router.push('/enquiries/view/' + enquiryId)
+    if (setRefresh) {
+      setRefresh((prev: any) => !prev)
     }
+    if (isParentInteraction) {
+      localStorage.removeItem(`skipped_interaction_${enquiryId}`)
+    }
+    setSchoolTourDialog(false)
+    window.location.reload()
   }
 
   const handleCancelTour = () => {
@@ -509,7 +534,7 @@ const SchoolTourDialog = ({
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <div>
-        {openDialog && !minimized && (
+        {openDialog && !minimized && !schooltourSuccessDialog && (
           <Box
             sx={{
               position: 'fixed',
@@ -554,13 +579,13 @@ const SchoolTourDialog = ({
                 <Box>
                   <Typography variant='subtitle1' color={'text.primary'} sx={{ lineHeight: '24px' }}>
                     {isRescheduled
-                      ? 'Re-Scheduled School Tour'
+                      ? `Re-Scheduled ${isParentInteraction ? 'Parent Interaction' : 'School Tour'}`
                       : isCancel
-                      ? 'Cancel Tour'
+                      ? `Cancel ${isParentInteraction ? 'Interaction' : 'Tour'}`
                       : isStart
-                      ? 'On-Going School Tour'
+                      ? `On-Going ${isParentInteraction ? 'Parent Interaction' : 'School Tour'}`
                       : isBooked
-                      ? 'View School Tour'
+                      ? `View ${isParentInteraction ? 'Parent Interaction' : 'School Tour'}`
                       : title}
                   </Typography>
                 </Box>
@@ -713,7 +738,7 @@ const SchoolTourDialog = ({
                             color='inherit'
                             fullWidth
                           >
-                            Cancel Tour
+                            {isParentInteraction ? 'Cancel Interaction' : 'Cancel Tour'}
                           </Button>
                         ) : null}
                         {isBooked && !isCancel && !isStart ? (
@@ -730,12 +755,12 @@ const SchoolTourDialog = ({
 
                         <Button type='submit' sx={{ width: 'auto' }} variant='contained' color='secondary' fullWidth>
                           {isBooked && !isCancel
-                            ? 'Start Tour'
+                            ? isParentInteraction ? 'Start Interaction' : 'Start Tour'
                             : isCancel
-                            ? 'Cancel Tour'
+                            ? isParentInteraction ? 'Cancel Interaction' : 'Cancel Tour'
                             : isStart
                             ? 'Submit'
-                            : 'Book Tour'}
+                            : isParentInteraction ? 'Book Interaction' : 'Book Tour'}
                         </Button>
                       </Box>
                     </form>
@@ -762,7 +787,7 @@ const SchoolTourDialog = ({
 
                     <Box sx={{ mt: 7, mb: 7 }}>
                       <Typography variant='caption' color={'customColors.text3'} sx={{ lineHeight: '14px' }}>
-                        Visit Date
+                        {isParentInteraction ? 'Interaction Date' : 'Visit Date'}
                       </Typography>
                       <Typography
                         variant='subtitle1'
@@ -775,7 +800,7 @@ const SchoolTourDialog = ({
 
                     <Box sx={{ mt: 7, mb: 7 }}>
                       <Typography variant='caption' color={'customColors.text3'} sx={{ lineHeight: '14px' }}>
-                        Visit Time
+                        {isParentInteraction ? 'Interaction Time' : 'Visit Time'}
                       </Typography>
                       <Typography
                         variant='subtitle1'
@@ -812,7 +837,7 @@ const SchoolTourDialog = ({
                           color='inherit'
                           fullWidth
                         >
-                          Cancel Tour
+                          {isParentInteraction ? 'Cancel Interaction' : 'Cancel Tour'}
                         </Button>
                       )}
 
@@ -838,7 +863,7 @@ const SchoolTourDialog = ({
                           color='secondary'
                           sx={{ width: 'auto' }}
                         >
-                          Start Tour
+                          {isParentInteraction ? 'Start Interaction' : 'Start Tour'}
                         </Button>
                       )}
                     </Box>
@@ -856,7 +881,7 @@ const SchoolTourDialog = ({
                           }}
                           defaultValue={dayjs(convertDate(apiVisitDate))}
                           format='DD/MM/YYYY'
-                          label='Visit Date'
+                          label={isParentInteraction ? 'Interaction Date' : 'Visit Date'}
                           disabled
                         />
                       </LocalizationProvider>
@@ -864,7 +889,7 @@ const SchoolTourDialog = ({
                     <Box sx={{ mb: 7 }}>
                       <TextField
                         fullWidth
-                        label='Visit Time'
+                        label={isParentInteraction ? 'Interaction Time' : 'Visit Time'}
                         value={apiVisitTime}
                         placeholder='Visit Time'
                         //  onChange={e => setVisitTime(e.target.value)}
@@ -933,7 +958,7 @@ const SchoolTourDialog = ({
                         color='secondary'
                         fullWidth
                       >
-                        Cancel Tour
+                        {isParentInteraction ? 'Cancel Interaction' : 'Cancel Tour'}
                       </Button>
                     </Box>
                   </Box>
@@ -949,10 +974,9 @@ const SchoolTourDialog = ({
                             slots={{
                               openPickerIcon: CalendarIcon
                             }}
-                            value={dayjs(convertDate(apiVisitDate))}
-                            //value={dayjs(convertDate(apiVisitDate))}
+                            value={dayjs(apiVisitDate)}
                             format='DD/MM/YYYY'
-                            label='Visit Date'
+                            label={isParentInteraction ? 'Interaction Date' : 'Visit Date'}
                             disabled
                           />
                         </LocalizationProvider>
@@ -960,9 +984,9 @@ const SchoolTourDialog = ({
                       <Box sx={{ mb: 7 }}>
                         <TextField
                           fullWidth
-                          label='Visit Time'
+                          label={isParentInteraction ? 'Interaction Time' : 'Visit Time'}
                           value={apiVisitTime}
-                          placeholder='Visit Time'
+                          placeholder='Time'
                           disabled
                         />
                       </Box>
@@ -989,14 +1013,14 @@ const SchoolTourDialog = ({
                               <Controller
                                 name='visitDate'
                                 control={control}
-                                rules={{ required: 'Visit Date is required' }}
+                                rules={{ required: 'Date is required' }}
                                 render={({ field }) => (
                                   <StaticDatePicker
                                     {...field}
                                     className='desktopDate'
                                     value={selectedDate}
-                                    defaultValue={dayjs()} // Initialize with the dynamic current date
-                                    minDate={dayjs()} // Restrict selection to current date and future dates
+                                    defaultValue={dayjs()}
+                                    minDate={dayjs()}
                                     onChange={newDate => {
                                       handleDateChange(newDate)
                                       field.onChange(newDate)
@@ -1019,7 +1043,7 @@ const SchoolTourDialog = ({
                       <Controller
                         name='visitTime'
                         control={control}
-                        rules={{ required: 'Visit time is required' }}
+                        rules={{ required: 'Time is required' }}
                         defaultValue={''}
                         render={({ field }) => (
                           <Box
@@ -1079,10 +1103,10 @@ const SchoolTourDialog = ({
                         }}
                       >
                         <Controller
-                          name='comment' // Specify the name for the form control
+                          name='comment'
                           control={control}
                           defaultValue=''
-                          rules={{ required: 'Comment  is required' }}
+                          rules={{ required: 'Comment is required' }}
                           render={({ field, fieldState: { error } }) => (
                             <TextField
                               {...field}
@@ -1097,7 +1121,7 @@ const SchoolTourDialog = ({
                         />
                       </Box>
 
-                      {/* Cancel and Book Tour Buttons */}
+                      {/* Cancel and Book Buttons */}
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
                         <Button
                           onClick={handleCancel}
@@ -1110,7 +1134,7 @@ const SchoolTourDialog = ({
                         </Button>
 
                         <Button type='submit' sx={{ width: 'auto' }} variant='contained' color='secondary' fullWidth>
-                          Book Tour
+                          {isParentInteraction ? 'Book Interaction' : 'Book Tour'}
                         </Button>
                       </Box>
                     </form>
@@ -1149,7 +1173,6 @@ const SchoolTourDialog = ({
                       </Box>
                     </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
-                      {/* Cancel button */}
                       <Button
                         onClick={handleCancel}
                         sx={{ width: 'auto' }}
@@ -1160,12 +1183,6 @@ const SchoolTourDialog = ({
                         Cancel
                       </Button>
 
-                      {/* Save button */}
-                      {/* <Button onClick={handleSave} sx={{ width: 'auto' }} variant='contained' color='primary' fullWidth>
-                        Save
-                      </Button> */}
-
-                      {/* Submit button */}
                       <Button
                         onClick={SubmitApi}
                         sx={{ width: 'auto' }}
@@ -1203,11 +1220,11 @@ const SchoolTourDialog = ({
           >
             <Typography variant='subtitle1' color={'text.primary'} sx={{ lineHeight: '21px' }}>
               {isRescheduled
-                ? 'ReScheduled School Tour'
+                ? (isParentInteraction ? 'ReScheduled Interaction' : 'ReScheduled Tour')
                 : isCancel
-                ? 'Cancel Tour'
+                ? (isParentInteraction ? 'Cancel Interaction' : 'Cancel Tour')
                 : isStart
-                ? 'On-Going School Tour'
+                ? (isParentInteraction ? 'On-Going Interaction' : 'On-Going Tour')
                 : title}
             </Typography>
             <IconButton onClick={() => setMinimized(false)}>
@@ -1223,7 +1240,9 @@ const SchoolTourDialog = ({
         {schooltourSuccessDialog && (
           <SuccessDialog
             openDialog={schooltourSuccessDialog}
-            title='School Tour Has been Registered Successfully'
+            title={`${isParentInteraction ? 'Parent Interaction' : 'School Tour'} Has been ${
+              isRescheduled ? 'Re-Scheduled' : isCancel ? 'Cancelled' : 'Registered'
+            } Successfully`}
             handleClose={handleSchoolTourSuccessClose}
           />
         )}

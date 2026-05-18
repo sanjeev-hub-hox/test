@@ -30,6 +30,7 @@ import ToggleGroupStepper from 'src/@core/CustomComponent/TriangleStepper/Toggle
 import ErrorDialogBox from 'src/@core/CustomComponent/ErrorDialogBox/ErrorDialogBox'
 import SubjectSelectionComponent from './SubjectSelectionComponent'
 import DefaultFees from './DefaultFees'
+import ParentInteraction from './ParentInteraction'
 
 import { DataGrid } from '@mui/x-data-grid'
 import { ENQUIRY_STAGES, ENQUIRY_STATUS } from 'src/utils/constants'
@@ -116,6 +117,12 @@ interface FormProps {
   setRefreshList?: any
   refreshList?: any
   setFormCompletion?: any
+  activeStageNameProp?: string
+  setParentInteractionDialog?: any
+  setIsInteractionStart?: any
+  setIsInteractionReschedule?: any
+  setIsInteractionCancel?: any
+  refreshData?: any
 }
 
 const StepperForms = ({
@@ -132,7 +139,13 @@ const StepperForms = ({
   authToken,
   setRefreshList,
   refreshList,
-  setFormCompletion
+  setFormCompletion,
+  activeStageNameProp,
+  setParentInteractionDialog,
+  setIsInteractionStart,
+  setIsInteractionReschedule,
+  setIsInteractionCancel,
+  refreshData
 }: FormProps) => {
   const router = useRouter()
 
@@ -185,12 +198,28 @@ const StepperForms = ({
   const [unlockedChips, setUnlockedChips] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
+    const forcedFromStorage = localStorage.getItem(`force_active_stage_${enquiryID}`)
+    const stageToUse = activeStageNameProp || forcedFromStorage
+
+    if (stageToUse && enquiryTypeData?.stages) {
+      const forcedStage = enquiryTypeData.stages.find((s: any) => s.name === stageToUse)
+      if (forcedStage) {
+        setActiveStageData(forcedStage)
+        setSelectedOptions('')
+      } else {
+        setActiveStageData({ name: stageToUse })
+        setSelectedOptions('')
+      }
+    }
+  }, [activeStageNameProp, enquiryTypeData, enquiryID])
+
+  useEffect(() => {
     if (!activeStageData) return
 
     setUnlockedChips(prev => {
       const idx = activeStageData.stage_forms?.findIndex((f: any) => f.name === selectedOptions) ?? -1
-      const sections = stageSections(activeStageData.name) || []
-      const sectionIdx = sections.indexOf(selectedOptions)
+      const sections = stageSections(activeStageData.name)
+      const sectionIdx = Array.isArray(sections) ? sections.indexOf(selectedOptions) : -1
 
       const newUnlocked = { ...prev }
       let changed = false
@@ -563,11 +592,12 @@ const StepperForms = ({
         return []
 
       default:
-        return <></>
+        return []
     }
   }
 
   const loadJourney = () => {
+    if (activeStageNameProp || localStorage.getItem(`force_active_stage_${enquiryID}`)) return
     // const regFeeStatus = getObjectKeyValSlug(enquiryDetails?.enquiry_stages, ENQUIRY_STAGES?.REGISTRATION_FEES)
     const regFeeStatus = getObjectKeyValSlug(enquiryDetails?.enquiry_stages, ENQUIRY_STAGES?.REGISTRATION_FEES)
 
@@ -666,6 +696,7 @@ const StepperForms = ({
   }
 
   const setInitialForm = (response: any, enquiryDetails: any) => {
+    if (activeStageNameProp || localStorage.getItem(`force_active_stage_${enquiryID}`)) return
     //Bypass stage for development
     // const enqStage = getObjectByKeyVal(enquiryTypeData?.stages, 'name', ENQUIRY_STAGES?.ADMISSION_STATUS)
 
@@ -788,13 +819,14 @@ const StepperForms = ({
     }
   }
 
-  const moveToNextStageAPI = async () => {
+  const moveToNextStageAPI = async (status?: string) => {
     setGlobalState({ isLoading: true })
     const params = {
       url: `marketing/enquiry/${enquiryID}/move-to-next-stage`,
       authToken: authToken,
       data: {
-        currentStage: activeStageData?.name
+        currentStage: activeStageData?.name,
+        status: status || 'Completed'
       }
     }
     await patchRequest(params)
@@ -802,13 +834,14 @@ const StepperForms = ({
     setGlobalState({ isLoading: false })
   }
 
-  const handleNext = () => {
+  const handleNext = (status?: string) => {
     // const journeyIndex = enquiryType?.stages.findIndex((stage: any) => stage.name === 'Registration')
     // if (journeyIndex < enquiryType?.stages?.length - 1) {
     //   setActiveStageData(enquiryType?.stages[journeyIndex])
     //   setSelectedOptions(enquiryType?.stages[journeyIndex]?.stage_forms[0]?.name)
     // }
-    moveToNextStageAPI().then(() => {
+    moveToNextStageAPI(status).then(() => {
+      localStorage.removeItem(`force_active_stage_${enquiryID}`)
       setGlobalState({ isLoading: true })
       setTimeout(() => {
         setGlobalState({ isLoading: false })
@@ -1275,46 +1308,47 @@ const StepperForms = ({
               ? activeSatge.stage_forms.map((val: any, index: number) => {
                   return selectedOptions == val.name ? (
                     <>
-                      <CreateForm
-                        activeStageName={activeStageData?.name}
-                        auto={false}
-                        setDynamicFormData={setDynamicFormData}
-                        url={
-                          dynamicFormData &&
-                          !enquiryType?.name?.includes('Re Admission') &&
-                          pathname != '/enquiries/create/'
-                            ? `marketing/enquiry/${enquiryID}`
-                            : 'marketing/enquiry/create'
-                        }
-                        requestParams={
-                          dynamicFormData &&
-                          !enquiryType?.name?.includes('Re Admission') &&
-                          pathname != '/enquiries/create/'
-                            ? {
-                                reqType: 'PATCH'
-                              }
-                            : {
-                                reqType: 'POST'
-                              }
-                        }
-                        slug={val.slug}
-                        appendRequest={{
-                          metadata: {
-                            form_id: val?._id?.toString(),
-                            enquiry_type_id: enquiryType?._id
+                        <CreateForm
+                          activeStageName={activeStageData?.name}
+                          auto={false}
+                          setDynamicFormData={setDynamicFormData}
+                          url={
+                            dynamicFormData &&
+                            !enquiryType?.name?.includes('Re Admission') &&
+                            pathname != '/enquiries/create/'
+                              ? `marketing/enquiry/${enquiryID}`
+                              : 'marketing/enquiry/create'
                           }
-                        }}
-                        submitProp={submitProp}
-                        submitPropsFunction={submitPropsFunction}
-                        dataId={enquiryType?._id}
-                        dynamicFormData={dynamicFormData}
-                        {...(index == 0 && { attachExternalFields: true })}
-                        {...(index == 0 && enquiryType?.name.includes('PSA') && { externalPSAFields: true })}
-                        {...(index == 0 && enquiryType?.name.includes('Kids club') && { externalKidsClubFields: true })}
-                        enquiryTypeData={enquiryTypeData}
-                        setSubmitProp={setSubmitProp}
-                        authToken={authToken}
-                      />
+                          requestParams={
+                            dynamicFormData &&
+                            !enquiryType?.name?.includes('Re Admission') &&
+                            pathname != '/enquiries/create/'
+                              ? {
+                                  reqType: 'PATCH'
+                                }
+                              : {
+                                  reqType: 'POST'
+                                }
+                          }
+                          slug={val.slug}
+                          appendRequest={{
+                            metadata: {
+                              form_id: val?._id?.toString(),
+                              enquiry_type_id: enquiryType?._id
+                            }
+                          }}
+                          submitProp={submitProp}
+                          submitPropsFunction={submitPropsFunction}
+                          dataId={enquiryType?._id}
+                          dynamicFormData={dynamicFormData}
+                          {...(index == 0 && { attachExternalFields: true })}
+                          {...(index == 0 && enquiryType?.name.includes('PSA') && { externalPSAFields: true })}
+                          {...(index == 0 && enquiryType?.name.includes('Kids club') && { externalKidsClubFields: true })}
+                          enquiryTypeData={enquiryTypeData}
+                          setSubmitProp={setSubmitProp}
+                          authToken={authToken}
+                          setRegDisabled={setRegDisabled}
+                        />
                     </>
                   ) : null
                 })
@@ -1437,6 +1471,21 @@ const StepperForms = ({
               </>
             ) : null}
           </>
+        )
+
+      case ENQUIRY_STAGES.PARENT_INTERACTION:
+        return (
+          <ParentInteraction
+            handleCancel={handleCancel}
+            setParentInteractionDialog={setParentInteractionDialog}
+            setIsInteractionStart={setIsInteractionStart}
+            setIsInteractionReschedule={setIsInteractionReschedule}
+            setIsInteractionCancel={setIsInteractionCancel}
+            refreshData={refreshData}
+            enquiryId={enquiryID}
+            enquiryDetails={enquiryDetails}
+            handleNext={handleNext}
+          />
         )
 
       case ENQUIRY_STAGES?.REGISTRATION_FEES:
@@ -2364,8 +2413,20 @@ const StepperForms = ({
   }
 
   const checkIfStepActive = (name: string) => {
+    if (activeStageNameProp && name && name.trim().toLowerCase() === activeStageNameProp.trim().toLowerCase()) {
+      return { active: true }
+    }
+    if (activeStageData?.name && name && name.trim().toLowerCase() === activeStageData.name.trim().toLowerCase()) {
+      return { active: true }
+    }
     const dd = getObjectKeyValSlug(dynamicFormData?.enquiry_stages, name)
+    if (dd && dd?.status === 'Completed') {
+      if (name === 'Parent interaction' && localStorage.getItem(`skipped_interaction_${enquiryID}`) === 'true') {
+        return { active: false }
+      }
 
+      return { success: true }
+    }
     switch (name) {
       case 'Competency test':
         if (dd && dd?.status == 'Failed') {
@@ -2416,6 +2477,9 @@ const StepperForms = ({
         }
 
       default:
+        if (activeStageNameProp === name || activeStageData?.name === name) {
+          return { active: true }
+        }
         if (dd && dd?.status == 'Pending') {
           return { pending: true }
         } else if (activeStageData?.name == name) {
@@ -2670,7 +2734,8 @@ const StepperForms = ({
           {renderForms(activeStageData)}
         </Grid>
 
-        <Grid item xs={12} sx={{ mt: 9, display: 'flex', justifyContent: 'flex-end' }}>
+        {activeStageData?.name !== ENQUIRY_STAGES.PARENT_INTERACTION && (
+          <Grid item xs={12} sx={{ mt: 9, display: 'flex', justifyContent: 'flex-end' }}>
           {enquiryDetails?.status != 'Admitted' &&
             !hideCTA &&
             selectedOptions !== 'Default Fees' &&
@@ -2817,7 +2882,14 @@ const StepperForms = ({
             activeStageData?.name != ENQUIRY_STAGES?.PAYMENT &&
             (selectedOptions == getNextStage()?.stage_forms[getNextStage()?.stage_forms?.length - 1]?.name ||
               selectedOptions == 'Upload Documents') ? (
-            <Button onClick={handleSubmit} size='large' variant='contained' color='secondary' sx={{ mr: 2 }}>
+            <Button
+              onClick={handleSubmit}
+              size='large'
+              variant='contained'
+              color='secondary'
+              sx={{ mr: 2 }}
+              disabled={(enquiryType?.name?.toLowerCase().includes('kids club') || enquiryType?.slug?.includes('kidsclub')) && regDisabled}
+            >
               {/* Save & Next */}
               {getNextStage()?.name
                 ? `Proceed to ${getNextStage()?.name}`
@@ -2827,6 +2899,7 @@ const StepperForms = ({
             </Button>
           ) : null}
         </Grid>
+        )}
         {successDialog && (
           <SuccessDialog openDialog={successDialog} title={dialogTitle} handleClose={handleSuccessDialogClose} />
         )}

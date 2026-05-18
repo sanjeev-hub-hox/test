@@ -199,7 +199,7 @@ export function convertTime(isoDate: string) {
 }
 
 export const getObjectByKeyVal: any = (object: any, key: any, value: any) => {
-  return object?.find((o: any) => o[key] === value)
+  return object?.find((o: any) => o && o[key] === value)
 }
 
 export const getInitials = (name: string) => {

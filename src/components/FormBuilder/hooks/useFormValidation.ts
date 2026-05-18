@@ -3,6 +3,7 @@ import { generateFormSchema, checkValidationsZod } from '../../../utils/formVali
 import { Validation, BASE_VALIDATION_ARRAY, OPTIONAL_VALIDATION_ARRAY } from '../types/FormTypes'
 import { ENQUIRY_STAGES } from 'src/utils/constants'
 import { parentFields } from '../types/parentFields'
+import dayjs from 'dayjs'
 
 interface UseFormValidationProps {
   formData: any
@@ -23,15 +24,51 @@ export const useFormValidation = ({
   activeStageName,
   attachExternalFields
 }: UseFormValidationProps) => {
+  const isKidsClub =
+    (enquiryTypeData &&
+      (enquiryTypeData?.slug === 'externalUserKidsClub' ||
+        enquiryTypeData?.name?.toLowerCase()?.includes('kids club'))) ||
+    slug?.toLowerCase()?.includes('kidsclub') ||
+    formData?.enquiry_type === 'KidsClub'
+
   const isFieldVisible = useCallback(
     (data: any) => {
-      // Hardcoded rules for Kids Club Enquiry Form
-      if (slug === 'createEnquiryKidsClubForm') {
-        if (data?.['input_name'] === 'enrollment no' || data?.['input_field_name'] === 'enrollment_no') {
-          return formData['student_type.id'] === 'Vibgyor Student' || formData['student_type'] === 'Vibgyor Student'
+      if (isKidsClub) {
+        if (
+          data?.['input_name'] === 'enrollment no' ||
+          data?.['input_field_name'] === 'enrollment_no' ||
+          data?.['input_field_name'] === 'enrollment_number'
+        ) {
+          const studentType = formData['student_type.id'] || formData['student_type']
+          return studentType === 'Vibgyor Student' || studentType === 'Vibgyor'
         }
-        if (data?.['input_name'] === 'employee id' || data?.['input_field_name'] === 'employee_id' || data?.['input_name'] === 'employeeid') {
-          return formData['is_the_student_staff_child'] === 'yes'
+        if (
+          data?.['input_name'] === 'employee id' ||
+          data?.['input_field_name'] === 'employee_id' ||
+          data?.['input_name'] === 'employeeid'
+        ) {
+          return formData['is_staff_child'] === 'yes' || formData['is_the_student_staff_child'] === 'yes'
+        }
+
+        if (data?.['input_dependent_field'] === 'parent_type' || data?.['input_dependent_field'] === 'parenttype') {
+          let selectedParentType = formData['parent_type'] || formData['parent_type.id'] || ''
+          
+          if (typeof selectedParentType === 'object' && selectedParentType?.value) {
+            selectedParentType = selectedParentType.value
+          }
+          
+          selectedParentType = String(selectedParentType).toLowerCase()
+          
+          if (!selectedParentType) return false
+
+          const fieldName = (data?.['input_field_name'] || data?.['input_name'] || '').toLowerCase()
+
+          if (fieldName.includes('father')) return selectedParentType === 'father'
+          if (fieldName.includes('mother')) return selectedParentType === 'mother'
+          if (fieldName.includes('guardian')) return selectedParentType === 'guardian'
+
+          // Generic parent field — show whenever any type is selected
+          return true
         }
       }
 
@@ -45,7 +82,7 @@ export const useFormValidation = ({
         return found?.display
       }
     },
-    [dependentField, slug, formData]
+    [dependentField, slug, formData, isKidsClub]
   )
 
   const checkValidations = useCallback((validations: Validation[], value: any, fieldName?: string) => {
@@ -145,12 +182,11 @@ export const useFormValidation = ({
     if (requiredField) {
       // ✅ Also check other_details.referral_source as fallback
       // because some enquiries store employee source there instead of root level
-      const fieldValue = formData[`${requiredField}.id`] || 
-        formData[`${requiredField}.value`] ||
-        (requiredField === 'enquiry_employee_source' && (
-          formData['other_details.referral_source.id'] ||
-          formData['other_details.referral_source.email'] // employee referral stored differently
-        )) || null
+      const fieldValue = formData[`${requiredField}.id`] ||
+      formData[`${requiredField}.value`] ||
+      (requiredField === 'enquiry_employee_source'
+      ? (formData['referral_source']?.id || formData['referral_source']?.email)
+      : null) || null
 
       const error = checkValidations(BASE_VALIDATION_ARRAY, fieldValue, requiredField)
       if (error) errors[requiredField] = error
@@ -159,7 +195,7 @@ export const useFormValidation = ({
     if (
       Object.keys(errors).length > 0 &&
       (attachExternalFields || slug === 'enquiryStudentDetailRegistrationForm') &&
-      slug !== 'createEnquiryKidsClubForm'
+      !isKidsClub
     ) {
       return { errors, status: true }
     } else {
@@ -225,12 +261,8 @@ export const useFormValidation = ({
       if (error) errors[val] = getRequiredErrorMessage(val, error)
     })
 
-    const isKidsClubFlow =
-      (enquiryTypeData && enquiryTypeData?.slug === 'externalUserKidsClub') ||
-      slug === 'externalUserKidsClub' ||
-      slug === 'createEnquiryKidsClubForm' ||
-      formData?.enquiry_type === 'KidsClub'
-
+    const isKidsClubFlow = isKidsClub
+    
     if (isKidsClubFlow) {
       const isStaffChild = formData['is_staff_child'] === 'yes' || formData['is_the_student_staff_child'] === 'yes'
       if (isStaffChild) {
@@ -242,17 +274,27 @@ export const useFormValidation = ({
       }
 
       const currentStudentType = formData['student_type.id'] || formData['student_type']
-      if (currentStudentType !== 'Vibgyor Student' && currentStudentType !== 'Non-Vibgyor Student') {
+      const validStudentTypes = ['Vibgyor Student', 'Non-Vibgyor Student', 'Vibgyor', 'Non-Vibgyor']
+
+      if (!currentStudentType || !validStudentTypes.includes(currentStudentType)) {
          errors['student_type'] = 'Student Type is required'
       }
+
+    if (activeStageName === ENQUIRY_STAGES.ENQUIRY || activeStageName === ENQUIRY_STAGES.REGISTRATION) {
+      if (formData['is_batch_available'] === false) {
+        errors['batch_selection'] = 'No batches found for the selected criteria'
+      } else if (!formData['batch_selection'] || formData['batch_selection'].length === 0) {
+        errors['batch_selection'] = 'Please select at least one batch'
+      }
     }
+  }
 
     if (Object.keys(errors).length > 0 && isKidsClubFlow) {
       return { errors, status: true }
     } else {
       return { status: false }
     }
-  }, [formData, enquiryTypeData, slug, checkValidations])
+  }, [formData, enquiryTypeData, slug, checkValidations, activeStageName])
 
   const validateResidentialFields = useCallback(() => {
     const errors: any = {}
@@ -290,7 +332,7 @@ export const useFormValidation = ({
     if (
       Object.keys(errors).length > 0 &&
       (slug === 'createContactDetails' || activeStageName === ENQUIRY_STAGES?.ENQUIRY) &&
-      slug !== 'createEnquiryKidsClubForm'
+      !isKidsClub
     ) {
       return { errors, status: true }
     } else {
@@ -431,6 +473,48 @@ export const useFormValidation = ({
     return Object.keys(errors).length > 0 ? { errors, status: true } : { status: false }
   }, [formData])
 
+  const validateDateRange = useCallback(() => {
+    const errors: any = {}
+    const startDate = formData['start_date']
+    const endDate = formData['end_date']
+    const ayValue = formData['academic_year.value']
+    const today = dayjs().startOf('day')
+
+    let ayStartDate: any = null
+    let ayEndDate: any = null
+
+    if (ayValue && typeof ayValue === 'string') {
+      const years = ayValue.split(' - ').map(num => num.trim())
+      if (years.length === 2) {
+        ayStartDate = dayjs(`${years[0]}-04-01`).startOf('day')
+        ayEndDate = dayjs(`${years[1]}-03-31`).endOf('day')
+      }
+    }
+
+    if (startDate) {
+      const startDay = dayjs(startDate)
+      if (startDay.isBefore(today)) {
+        errors['start_date'] = 'Start Date cannot be in the past'
+      } else if (ayStartDate && ayEndDate && (startDay.isBefore(ayStartDate) || startDay.isAfter(ayEndDate))) {
+        errors['start_date'] = `Start Date must be within the Academic Year (${ayValue})`
+      }
+    }
+
+    if (endDate) {
+      const endDay = dayjs(endDate)
+      if (endDay.isBefore(today)) {
+        errors['end_date'] = 'End Date cannot be in the past'
+      } else if (ayStartDate && ayEndDate && (endDay.isBefore(ayStartDate) || endDay.isAfter(ayEndDate))) {
+        errors['end_date'] = `End Date must be within the Academic Year (${ayValue})`
+      }
+
+      if (startDate && endDay.isBefore(dayjs(startDate))) {
+        errors['end_date'] = 'End Date cannot be before Start Date'
+      }
+    }
+    return Object.keys(errors).length > 0 ? { errors, status: true } : { status: false }
+  }, [formData])
+
   return {
     isFieldVisible,
     checkValidations,
@@ -443,6 +527,7 @@ export const useFormValidation = ({
     validateGuestStudent,
     validateStudentEnrollment,
     validatePincodeFormat,
+    validateDateRange,
     getFieldCondition
   }
 }

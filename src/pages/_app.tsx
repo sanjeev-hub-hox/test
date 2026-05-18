@@ -69,6 +69,10 @@ import CustomHeader from 'src/OwnComponents/AppBar/CustomHeader'
 import { usePathname } from 'next/navigation'
 import { useTokenRefresh } from 'src/hooks/useTokenRefresh'
 import { SSO_TOKEN } from 'src/utils/constants'
+
+// ✅ RBAC: PermissionGuard — gates pages based on userInfo.permissions from localStorage
+import PermissionGuard from 'src/components/auth/PermissionGuard'
+
 // ** Extend App Props with Emotion
 type ExtendedAppProps = AppProps & {
   Component: NextPage
@@ -124,6 +128,17 @@ const PUBLIC_ROUTES = [
   '/signIn',
   '/accept-terms-conditions'
 ]
+
+const hasAllowedLob = (rbacData: any): boolean => {
+  const lobs = rbacData?.lobs ?? rbacData?.userInfo?.lobs
+  const lobCodes = rbacData?.lobCodes ?? rbacData?.userInfo?.lobCodes
+
+  return (
+    (Array.isArray(lobs) && lobs.length > 0) ||
+    (Array.isArray(lobCodes) && lobCodes.length > 0)
+  )
+}
+
 const App = (props: ExtendedAppProps) => {
   const { Component, emotionCache = clientSideEmotionCache, pageProps } = props
   const theme = useTheme()
@@ -225,6 +240,29 @@ const App = (props: ExtendedAppProps) => {
 
   const fetchRBAC = async () => {
     setIsClient(true)
+
+    // Do not call RBAC or downstream APIs on the maintenance route — they return 503 and
+    // apiService would navigate here again, causing a full reload loop.
+    if (router.pathname === '/503') {
+      const sessionVal503: any = await getSession()
+      if (sessionVal503?.accessToken) {
+        localStorage.setItem('token', sessionVal503.accessToken)
+        localStorage.setItem('refreshToken', sessionVal503.refreshToken)
+        localStorage.setItem('idToken', sessionVal503.idToken)
+        localStorage.setItem('userDetails', JSON.stringify(sessionVal503.user))
+        setAuthGuard(true)
+        setguestGuard(false)
+      } else if (localStorage.getItem('token')) {
+        setAuthGuard(true)
+        setguestGuard(false)
+      } else {
+        setAuthGuard(false)
+        setguestGuard(true)
+      }
+
+      return
+    }
+
     if (process.env.NODE_ENV == 'development') {
       localStorage.setItem('token', SSO_TOKEN || '')
     }
@@ -252,6 +290,15 @@ const App = (props: ExtendedAppProps) => {
         const response: any = await postRequest(apiRequest)
 
         if (response.success) {
+          if (!hasAllowedLob(response?.data)) {
+            localStorage.removeItem('userInfo')
+            setAuthGuard(true)
+            setguestGuard(false)
+            router.replace('/403')
+
+            return
+          }
+
           const isFirstTimeSetting = !localStorage.getItem('userInfo')
 
           localStorage.setItem('userInfo', JSON.stringify(response?.data))
@@ -259,7 +306,7 @@ const App = (props: ExtendedAppProps) => {
             window.location.reload()
           }
         }
-      } catch (error) {}
+      } catch (error) { }
 
       setAuthGuard(true)
       setguestGuard(false)
@@ -279,6 +326,15 @@ const App = (props: ExtendedAppProps) => {
   useEffect(() => {
     fetchRBAC()
   }, [])
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ✅ RBAC: Skip PermissionGuard for standalone/public pages that bypass layout.
+  // These pages don't need RBAC gating — they are either public or mobile-only.
+  // ─────────────────────────────────────────────────────────────────────────────
+  const isStandalonePage =
+    pathName?.startsWith('/accept-terms-conditions/') ||
+    pathName?.startsWith('/referralconfirmation') ||
+    mobileView
 
   return (
     <CacheProvider value={emotionCache}>
@@ -311,23 +367,25 @@ const App = (props: ExtendedAppProps) => {
                           )} */}
                             {mounted && (
                               <>
-                                {/* Normal layout pages */}
-                                {!pathName?.startsWith('/accept-terms-conditions/') &&
-                                  !pathName?.startsWith('/referralconfirmation') &&
-                                  isClient &&
-                                  !mobileView &&
-                                  getLayout(<Component {...pageProps} />)}
+                                {/* ── Normal layout pages (with sidebar) ── */}
+                                {!isStandalonePage && isClient && (
+                                  // ✅ RBAC: PermissionGuard wraps only layout pages.
+                                  // Standalone/public pages are excluded (see isStandalonePage above).
+                                  // Guard reads userInfo.permissions from localStorage (set by fetchRBAC)
+                                  // and redirects to /403 if the user lacks the required permission.
+                                  <PermissionGuard>
+                                    {getLayout(<Component {...pageProps} />)}
+                                  </PermissionGuard>
+                                )}
 
-                                {/* Standalone pages (no sidebar) */}
-                                {(pathName?.startsWith('/accept-terms-conditions/') ||
-                                  pathName?.startsWith('/referralconfirmation') ||
-                                  mobileView) && (
+                                {/* ── Standalone pages (no sidebar — no RBAC check needed) ── */}
+                                {isStandalonePage && (
                                   <Box
                                     sx={{
                                       width: '100%',
                                       height: '100%',
                                       maxWidth: '600px',
-                                      margin: '50px auto', // centers the box
+                                      margin: '50px auto',
                                       padding: '20px',
                                       background: '#fff',
                                       borderRadius: '10px',

@@ -684,6 +684,9 @@ export default function ReportFilterDrawer({ isOpen, onClose, onDownload, report
       const nextFilters = { ...prev };
       // Iterate through all currently available dynamic options
       Object.keys(dynamicOptions).forEach(key => {
+        if (key === 'coordinator_code' || key === 'teacher_code') {
+          return; // Skip auto-selection for co-ordinator and teacher
+        }
         const options = dynamicOptions[key];
         // If a dropdown has exactly 1 option, and we haven't selected it yet
         if (options && options.length === 1) {

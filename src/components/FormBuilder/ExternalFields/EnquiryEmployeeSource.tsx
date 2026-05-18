@@ -33,12 +33,14 @@ const EnquiryEmployeeSource = ({ enquiryEmployeeSource, formData, setFormData }:
   // Pre-load when editing an existing record — read from formData.referral_source directly
   useEffect(() => {
     const referral = formData?.referral_source
-    if (referral?.type === 'employee' && referral?.id && !selectedOption) {
+    const hasExistingSource = formData?.['enquiry_employee_source.id'] || (referral?.type === 'employee' && referral?.id)
+    if (hasExistingSource && !selectedOption) {
+      const sourceId = formData?.['enquiry_employee_source.id'] || referral?.id
       const fetchById = async () => {
         try {
           setGlobalState({ isLoading: true })
           const params = {
-            url: `/api/hr-employee-masters/${referral.id}?populate=*`,
+            url: `/api/hr-employee-masters/${sourceId}?populate=*`,
             serviceURL: 'mdm',
             headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_MDM_TOKEN}` }
           }
@@ -50,14 +52,13 @@ const EnquiryEmployeeSource = ({ enquiryEmployeeSource, formData, setFormData }:
             setInputValue(getFullName(emp))
           }
         } catch (err) {
-          // console.error('Error pre-loading employee:', err)
         } finally {
           setGlobalState({ isLoading: false })
         }
       }
       fetchById()
     }
-  }, [])
+  }, [formData?.['enquiry_employee_source.id'], formData?.referral_source?.id])
 
   // Reset when sub-source type is changed away from Employee
   useEffect(() => {

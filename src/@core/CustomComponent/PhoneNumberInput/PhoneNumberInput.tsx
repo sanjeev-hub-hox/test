@@ -73,9 +73,10 @@ type PhoneNumber = {
   handleOnChange?: any
   item?: any
   error?: any
+  value?: any
 }
 
-const PhoneNumberInput = ({ label, helperText, required, disabled, handleOnChange, item, error }: PhoneNumber) => {
+const PhoneNumberInput = ({ label, helperText, required, disabled, handleOnChange, item, error, value }: PhoneNumber) => {
   const [countryCode, setCountryCode] = useState('+91')
   // const [error, setError] = useState('')
   const [countryCodeList, setCountryCodesList] = useState<any>([])
@@ -127,6 +128,7 @@ const PhoneNumberInput = ({ label, helperText, required, disabled, handleOnChang
         disabled={disabled}
         variant='outlined'
         label={label}
+        value={value || ''}
         onChange={e =>
           handleOnChange(
             item?.['input_field_name'],

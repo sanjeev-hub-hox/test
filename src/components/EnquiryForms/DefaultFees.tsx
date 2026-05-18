@@ -162,7 +162,13 @@ function DefaultFees({
             <Button onClick={handleCancel} variant='outlined' sx={{ mr: 4 }} color='inherit'>
               Cancel
             </Button>
-            <Button disabled={!defaultfees?.length} variant='contained' color='secondary' onClick={saveDefaultFees}>
+            <Button disabled={
+                !defaultfees?.length && !enquiryDetails?.student_details?.grade?.value?.toLowerCase()?.includes('toddler')
+              }
+              variant='contained'
+              color='secondary'
+              onClick={saveDefaultFees}
+            >
               Save & Next
             </Button>
           </Grid>

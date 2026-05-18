@@ -108,6 +108,10 @@ export default function MasterDropDown({
   const handleDependentOptionList = async () => {
     setGlobalState({ isLoading: true })
     if (item?.['input_dependent_field'] && item?.['input_dependent_key']) {
+      if (item?.['input_default_value']?.includes('mdm/schools')) {
+        setGlobalState({ isLoading: false })
+        return
+      }
       const dd = getObjectByKeyVal(formFieldsInput, 'input_id', item?.['input_dependent_field'])
 
       const params = {
@@ -147,7 +151,13 @@ export default function MasterDropDown({
             onFocus={handleDependentOptionList}
             fullWidth
             id={item?.['input_field_name']}
-            disabled={getObjectByKeyVal(item?.validations, 'type', 'readonly')?.validation === true ? true : false}
+            disabled={
+              getObjectByKeyVal(item?.validations, 'type', 'readonly')?.validation === true ||
+              getObjectByKeyVal(item?.validations, 'type', 'is_read_only')?.validation === true ||
+              item?.validations?.[10]?.validation === true
+                ? true
+                : false
+            }
             options={options}
             getOptionLabel={(option: any) =>
               option?.attributes.name || option?.attributes.description || Object.values(option?.attributes)[0]

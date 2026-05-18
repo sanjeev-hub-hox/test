@@ -1944,6 +1944,8 @@ function EnquiryListing() {
           setMinimized={setMinimized}
           enquiryId={actionEnquiryId}
           enquiryType={actionEnquiryType}
+          stageType={ENQUIRY_STAGES.SCHOOL_VISIT}
+          setRefresh={setRefresh}
           mode='list'
         />
       )}

@@ -50,6 +50,7 @@ import { Can } from 'src/components/Can'
 import { PERMISSIONS } from 'src/utils/constants'
 import SuccessDialog from 'src/@core/CustomComponent/SuccessDialogBox/SuccessDialog'
 import ErrorDialogBox from 'src/@core/CustomComponent/ErrorDialogBox/ErrorDialogBox'
+import PdfPreviewDialog from './PdfPreviewDialog'
 
 function Pagination(props: any) {
   const { page, onPageChange, className } = props
@@ -135,6 +136,9 @@ const RequestListing = () => {
   const [exceptionErrorMessage, setExceptionErrorMessage] = useState('')
   const [loadingDownload, setLoadingDownload] = useState<string | number | null>(null)
   const [exceptionRemark, setExceptionRemark] = useState('')
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [loadingPreview, setLoadingPreview] = useState(null)
 
   // General Error Dialog for API failures
   const [errorDialogOpen, setErrorDialogOpen] = useState(false)
@@ -281,7 +285,9 @@ const RequestListing = () => {
     if (!cancelRemark.trim()) {
       return
     }
-
+    const userInfoStr = getLocalStorageVal('userInfo')
+    const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
+    const userId = userInfo?.userInfo?.id
     setLoadingCancel(true)
     const idToCancel = selectedRequest?.requestId || selectedRequest?.id
 
@@ -289,7 +295,7 @@ const RequestListing = () => {
       const apiRequest = {
         url: `/student-process-requests/cancel-lc-request?id=${idToCancel}`,
         serviceURL: 'admin',
-        data: { remark: cancelRemark }
+        data: { remark: cancelRemark, user_id: userId }
       }
 
       const response: any = await postRequest(apiRequest)
@@ -354,6 +360,49 @@ const RequestListing = () => {
       toast.error('An error occurred while downloading the PDF')
     } finally {
       setLoadingDownload(null)
+    }
+  }
+
+  const handlePreview = async (row: any) => {
+    const idToDownload = row.requestId || row.id
+    const lcNo = row.lcNumber || row.enrollmentNumber
+
+    if (!lcNo) {
+      toast.error('LC Number not found')
+      return
+    }
+
+    const reqType = row.requestType
+    const typeSlug = reqType?.toLowerCase().includes('fac') ? 'fac_request' : 'lc_request'
+
+    try {
+      setLoadingPreview(idToDownload)
+      const apiRequest = {
+        url: `/student-process-requests/generate-lc-pdf/${lcNo}`,
+        serviceURL: 'admin',
+        data: {
+          uniqueRequestId: idToDownload,
+          requestType: typeSlug,
+          notificationType: 'new_request_created'
+        },
+        responseType: 'blob'
+      }
+
+      const response: any = await postRequest(apiRequest)
+
+      if (response && !response.error) {
+        const blob = new Blob([response], { type: 'application/pdf' })
+        const url = window.URL.createObjectURL(blob)
+
+        setPdfUrl(url)
+        setIsModalOpen(true)
+      } else {
+        toast.error('Failed to download PDF')
+      }
+    } catch (error) {
+      toast.error('An error occurred while downloading the PDF')
+    } finally {
+      setLoadingPreview(null)
     }
   }
 
@@ -706,13 +755,13 @@ const RequestListing = () => {
         field: 'actions',
         headerName: 'Actions',
         sortable: false,
-        minWidth: 220,
-        flex: 1.5,
+        minWidth: 290,
+        flex: 1,
         headerAlign: 'center',
         align: 'center',
         renderCell: (params: GridRenderCellParams) => {
           return (
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 0.5 }}>
               {/* Edit */}
               <Can pagePermission={[PERMISSIONS?.EDIT_BUTTON]} action={'HIDE'}>
                 <Tooltip title='Edit Request'>
@@ -735,6 +784,32 @@ const RequestListing = () => {
                       }}
                     >
                       <span className='icon-edit' />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Can>
+              {/* View LC    */}
+              <Can pagePermission={[PERMISSIONS?.EDIT_BUTTON]} action={'HIDE'}>
+                <Tooltip title='View LC'>
+                  <span>
+                    <IconButton
+                      size='small'
+                      color='primary'
+                      // disabled={!params.row.canList}
+                      onClick={() => {
+                        const reqType = params.row.requestType
+                        const editId = params.row.requestId || params.row.id
+
+                        if (editId) {
+                          if (reqType === 'FAC Request' || reqType?.toLowerCase() === 'fac request') {
+                            router.push(`/request-listing/view-lc-request/${editId}?type=fac_request`)
+                          } else {
+                            router.push(`/request-listing/view-lc-request/${editId}?type=view_lc_request`)
+                          }
+                        }
+                      }}
+                    >
+                      <span className='icon-eye' />
                     </IconButton>
                   </span>
                 </Tooltip>
@@ -803,6 +878,26 @@ const RequestListing = () => {
                 </Tooltip>
               </Can>
 
+              {/* Preview */}
+              <Can pagePermission={[PERMISSIONS?.DOWNLOAD_BUTTON]} action={'HIDE'}>
+                <Tooltip title='Preview'>
+                  <span>
+                    <IconButton
+                      size='small'
+                      color='secondary'
+                      disabled={!params.row.canDownload || loadingPreview === (params.row.requestId || params.row.id)}
+                      onClick={() => handlePreview(params.row)}
+                    >
+                      {loadingPreview === (params.row.requestId || params.row.id) ? (
+                        <CircularProgress size={16} sx={{ color: '#0026ff' }} />
+                      ) : (
+                        <span className='icon-book' />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Can>
+
               {/* Download */}
               <Can pagePermission={[PERMISSIONS?.DOWNLOAD_BUTTON]} action={'HIDE'}>
                 <Tooltip title='Download'>
@@ -827,7 +922,7 @@ const RequestListing = () => {
         }
       }
     ],
-    [loadingDownload]
+    [loadingDownload, loadingPreview]
   )
 
   const filterSectionData = [
@@ -1476,6 +1571,15 @@ const RequestListing = () => {
           title={errorDialogMessage}
         />
       </Can>
+      <PdfPreviewDialog
+        open={isModalOpen}
+        pdfUrl={pdfUrl}
+        onClose={() => {
+          setIsModalOpen(false)
+          if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+          setPdfUrl(null)
+        }}
+      />
     </>
   )
 }

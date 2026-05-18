@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography'
 import { useFormValidation } from './hooks/useFormValidation'
 import { useFormActions } from './hooks/useFormActions'
 import { Fragment, useEffect, useState, useCallback, useRef } from 'react'
-import { getRequest } from '../../services/apiService'
+import { getRequest, postRequest } from '../../services/apiService'
 import moment from 'moment'
 import { BASE_VALIDATION_ARRAY as validationArray } from './types/FormTypes'
 import Icon from '../../@core/components/icon'
@@ -39,7 +39,7 @@ import { academicYearApiUrl, ENQUIRY_STAGES, ENQUIRY_STATUS } from 'src/utils/co
 import ParentsDetails from './ExternalFields/ParentsDetails'
 import { parentFields } from './types/parentFields'
 import ResidentislDetails from './ExternalFields/ResidentialDetails'
-import KidsClubEnquiryDetails from './ExternalFields/KidsClubEnquiryDetails'
+import KidsClubBatchTable from './ExternalFields/KidsClubBatchTable'
 // import PhoneNumberField from '../PhoneNumberField'
 import { Toaster } from 'react-hot-toast'
 import FieldRenderer from './components/FieldRenderer'
@@ -67,6 +67,7 @@ interface CreateProps {
   queryTesxtBox?: any
   setSubmitProp?: any
   authToken?: any
+  setRegDisabled?: React.Dispatch<React.SetStateAction<any>>
 }
 
 interface FileProp {
@@ -89,7 +90,8 @@ export default function CreateForm({
   activeStageName,
   queryTesxtBox,
   setSubmitProp,
-  authToken
+  authToken,
+  setRegDisabled
 }: CreateProps) {
   const skipReopenCheckRef = useRef(false)
   const [formfields, setFormfields] = useState<any>(null)
@@ -255,6 +257,60 @@ export default function CreateForm({
     dynamicFormData
   ])
 
+  useEffect(() => {
+    const empId = formData['employee_id']
+    if (empId && !formData['employee_details'] && !formData?.error?.employee_id) {
+      const fetchEmployeeDetails = async () => {
+        try {
+          const params = {
+            url: `/api/hr-employee-masters?filters[Group_Employee_Code][$eq]=${empId}&populate=*`,
+            serviceURL: 'mdm',
+            headers: {
+              Authorization: `Bearer ${process.env.NEXT_PUBLIC_MDM_TOKEN}`
+            }
+          }
+          const response: any = await getRequest(params)
+          if (response?.data?.length > 0) {
+            const emp = response.data[0]
+            const employmentStatus = emp?.attributes?.Employment_Status?.data?.attributes?.Employment_Status
+            const dateSeparation = emp?.attributes?.Date_of_Sepearation
+
+            const isActive = employmentStatus === 'Active'
+            const hasNotResigned = !dateSeparation
+
+            if (isActive && hasNotResigned) {
+              setFormData((prev: any) => ({
+                ...prev,
+                employee_details: emp,
+                error: { ...prev.error, employee_id: '' }
+              }))
+            } else {
+              const reason = !isActive ? 'Employee is not active' : 'Employee has resigned'
+              setFormData((prev: any) => ({
+                ...prev,
+                employee_details: null,
+                error: { ...prev.error, employee_id: reason }
+              }))
+            }
+          } else {
+            setFormData((prev: any) => ({
+              ...prev,
+              employee_details: null,
+              error: { ...prev.error, employee_id: 'Invalid Employee ID' }
+            }))
+          }
+        } catch (error) {
+          setFormData((prev: any) => ({
+            ...prev,
+            employee_details: null,
+            error: { ...prev.error, employee_id: 'Error verifying Employee ID' }
+          }))
+        }
+      }
+      fetchEmployeeDetails()
+    }
+  }, [formData['employee_id'], formData['employee_details']])
+
   const {
     isFieldVisible,
     checkValidations,
@@ -267,6 +323,7 @@ export default function CreateForm({
     validateGuestStudent,
     validateStudentEnrollment,
     validatePincodeFormat,
+    validateDateRange,
     getFieldCondition
   } = useFormValidation({
     formData,
@@ -317,7 +374,8 @@ export default function CreateForm({
       validateExternalParentFields,
       validateGuestStudent,
       validateStudentEnrollment,
-      validatePincodeFormat
+      validatePincodeFormat,
+      validateDateRange
     },
     dialogHandlers: {
       setOpenReopenDialog,
@@ -464,13 +522,18 @@ export default function CreateForm({
     setDependentField(convertedObject)
   }
   const getDefaultValue = (data: any) => {
+    const rawDefaultValue = data?.['input_default_value']
+    if (typeof rawDefaultValue === 'string' && rawDefaultValue.includes('api/')) {
+      return data?.['input_is-multiple'] || data?.['input_type'] === 'checkbox' ? [] : null
+    }
+
     if (data?.['input_type'] === 'date') {
-      const date = data?.['input_default_value'] ? new Date(data?.['input_default_value']?.split('T')[0]) : null
+      const date = rawDefaultValue ? new Date(rawDefaultValue.split('T')[0]) : null
 
       return date
     } else if (data?.['input_type'] === 'time') {
       const date = new Date()
-      const _time = moment(data?.['input_default_value'], 'hh:mm:ss A').format('HH:mm:ss')
+      const _time = moment(rawDefaultValue, 'hh:mm:ss A').format('HH:mm:ss')
       const __time = _time.split(':')
       date.setHours(parseInt(__time[0]))
       date.setMinutes(parseInt(__time[1]))
@@ -478,12 +541,12 @@ export default function CreateForm({
 
       return date
     } else if (data?.['input_type'] === 'dateRange') {
-      const date = new Date(data?.['input_default_value'].split('T')[0])
+      const date = new Date(rawDefaultValue.split('T')[0])
 
       return date
     } else if (data?.['input_type'] === 'timeRange') {
       const date = new Date()
-      const _time = moment(data?.['input_default_value'].split(','), 'hh:mm:ss A').format('HH:mm:ss')
+      const _time = moment(rawDefaultValue.split(','), 'hh:mm:ss A').format('HH:mm:ss')
       const __time = _time.split(':')
       date.setHours(parseInt(__time[0]))
       date.setMinutes(parseInt(__time[1]))
@@ -491,9 +554,9 @@ export default function CreateForm({
 
       return date
     } else if (data?.['input_type'] === 'checkbox') {
-      return data?.['input_default_value'].split(',')
+      return rawDefaultValue.split(',')
     } else {
-      return data?.['input_default_value']
+      return rawDefaultValue
     }
   }
   useEffect(() => {
@@ -506,20 +569,18 @@ export default function CreateForm({
             [item?.['input_field_name']]: [
               {
                 id: Date.now(),
-                value: item?.['input_is-multiple'] ? item?.['input_default_value'].split(',') : getDefaultValue(item)
-
-                // item?.['input_default_value']
+                value: getDefaultValue(item)
               }
             ]
           }
         } else {
-          _formData = {
-            ..._formData,
-            [item?.['input_field_name']]: item?.['input_is-multiple']
-              ? item?.['input_default_value'].split(',')
-              : getDefaultValue(item)
-
-            //  item?.['input_default_value'],
+          if (item?.['input_field_name'] === 'start_date' || item?.['input_field_name'] === 'end_date') {
+            _formData = { ..._formData, [item?.['input_field_name']]: null }
+          } else {
+            _formData = {
+              ..._formData,
+              [item?.['input_field_name']]: getDefaultValue(item)
+            }
           }
         }
       }
@@ -579,6 +640,16 @@ export default function CreateForm({
       _formData['residential_details.is_permanent_address'] = 'yes'
     }
 
+    const isKidsClubFormLocal =
+      enquiryTypeData?.slug === 'externalUserKidsClub' ||
+      slug === 'createEnquiryKidsClubForm' ||
+      enquiryTypeData?.name?.includes('Kids club')
+
+    if (isKidsClubFormLocal) {
+      _formData['start_date'] = null
+      _formData['end_date'] = null
+    }
+
     // setRequiredFields(_formData); test
     setFormData(_formData)
   }, [formfields])
@@ -629,16 +700,6 @@ export default function CreateForm({
       setFormData(_formData) ///
 
       const objNew: any = {}
-      if (attachExternalFields || slug == 'enquiryStudentDetailRegistrationForm') {if (attachExternalFields || slug == 'enquiryStudentDetailRegistrationForm') {
-        // Nikhil
-        const external_fields = ['enquiry_mode', 'enquiry_source_type', 'enquiry_source', 'enquiry_sub_source']
-        external_fields?.map((val: any) => {
-          objNew[val] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.id'] = getNestedProperty(dynamicFormData, val + '.id')
-          objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
-        })
-        objNew['referral_source'] = getNestedProperty(dynamicFormData, 'referral_source') ?? null
-      }
 
       if (externalPSAFields) {
         const external_fields = ['psa_sub_type', 'psa_category', 'psa_sub_category', 'psa_batch', 'period_of_service']
@@ -665,15 +726,21 @@ export default function CreateForm({
         objNew[val + '.value'] = getNestedProperty(dynamicFormData, val + '.value')
       })
 
-      if (
-        !objNew['enquiry_employee_source.id'] && 
-        dynamicFormData?.other_details?.referral_source?.type === 'employee'
-      ) {
-        const referralSource = dynamicFormData.other_details.referral_source
+      if (dynamicFormData?.referral_source) {
+        const referralSource = dynamicFormData.referral_source
         objNew['enquiry_employee_source.id'] = referralSource.id
         objNew['enquiry_employee_source.value'] = referralSource.email || ''
         objNew['enquiry_employee_source.name'] = referralSource.name || ''
         objNew['enquiry_employee_source.number'] = referralSource.phone || ''
+        // Also set referral_source so EnquiryEmployeeSource pre-load useEffect can find it
+        objNew['referral_source'] = referralSource
+      }
+      // Also set enquiry_sub_source value so the Employee field renders
+      if (
+        dynamicFormData?.other_details?.referral_source?.type === 'employee' &&
+        !objNew['enquiry_sub_source.value']
+      ) {
+        objNew['enquiry_sub_source.value'] = dynamicFormData?.enquiry_sub_source?.value || 'Employee'
       }
 
       if (
@@ -746,9 +813,9 @@ export default function CreateForm({
       }
 
       const isKidsClubForm =
+        slug?.toLowerCase().includes('kidsclub') ||
         enquiryTypeData?.slug === 'externalUserKidsClub' ||
         dynamicFormData?.enquiry_type === 'KidsClub' ||
-        slug === 'createEnquiryKidsClubForm' ||
         enquiryTypeData?.name?.includes('Kids club');
 
       if (isKidsClubForm) {
@@ -786,13 +853,73 @@ export default function CreateForm({
         objNew['kidsclub_location.id'] = dynamicFormData?.school_location?.id || ''
         objNew['kidsclub_location.value'] = dynamicFormData?.school_location?.value || ''
 
-        if (slug == 'enquiryStudentDetailRegistrationForm') {
+        if (slug?.toLowerCase().includes('registrationform')) {
           objNew['enquiry_number'] = dynamicFormData?.enquiry_number
           objNew['enquiry_type'] = dynamicFormData?.enquiry_type
         }
+
+        // Additional Kids Club specific mappings
+        objNew['parent_type'] = dynamicFormData?.parent_type || ''
+        objNew['parent_type.id'] = dynamicFormData?.parent_type || ''
+        objNew['parent_type.value'] = dynamicFormData?.parent_type || ''
+
+        if (dynamicFormData?.student_details) {
+          objNew['student_details.gender'] = dynamicFormData.student_details.gender?.id || ''
+          objNew['student_details.gender.id'] = dynamicFormData.student_details.gender?.id || ''
+          objNew['student_details.gender.value'] = dynamicFormData.student_details.gender?.value || ''
+          objNew['student_details.dob'] = dynamicFormData.student_details.dob || ''
+          objNew['student_details.grade'] = dynamicFormData.student_details.grade?.id || ''
+          objNew['student_details.grade.id'] = dynamicFormData.student_details.grade?.id || ''
+          objNew['student_details.grade.value'] = dynamicFormData.student_details.grade?.value || ''
+          objNew['student_details.first_name'] = dynamicFormData.student_details.first_name || ''
+          objNew['student_details.last_name'] = dynamicFormData.student_details.last_name || ''
+
+          objNew['gender'] = dynamicFormData.student_details.gender?.id || ''
+          objNew['gender.id'] = dynamicFormData.student_details.gender?.id || ''
+          objNew['gender.value'] = dynamicFormData.student_details.gender?.value || ''
+          objNew['grade'] = dynamicFormData.student_details.grade?.id || ''
+          objNew['grade.id'] = dynamicFormData.student_details.grade?.id || ''
+          objNew['grade.value'] = dynamicFormData.student_details.grade?.value || ''
+          objNew['date_of_birth'] = dynamicFormData.student_details.dob || ''
+
+          const gradeItem = formfields?.[0]?.inputs?.find((i: any) => i.input_field_name === 'grade')
+          if (gradeItem) checkDependentValue(dynamicFormData.student_details.grade?.id, gradeItem)
+          
+          const genderItem = formfields?.[0]?.inputs?.find((i: any) => i.input_field_name === 'gender')
+          if (genderItem) checkDependentValue(dynamicFormData.student_details.gender?.id, genderItem)
+
+          const parentTypeItem = formfields?.[0]?.inputs?.find((i: any) => i.input_field_name === 'parent_type')
+          if (parentTypeItem) checkDependentValue(dynamicFormData?.parent_type, parentTypeItem)
+        }
+
+        const pType = dynamicFormData?.parent_type?.toLowerCase() || ''
+        let pDetails = null
+        if (pType === 'father') pDetails = dynamicFormData?.parent_details?.father_details
+        else if (pType === 'mother') pDetails = dynamicFormData?.parent_details?.mother_details
+        else if (pType === 'guardian') pDetails = dynamicFormData?.parent_details?.guardian_details
+
+        if (pDetails) {
+          objNew['parent_first_name'] = pDetails.first_name || ''
+          objNew['parent_last_name'] = pDetails.last_name || ''
+          objNew['parent_email_id'] = pDetails.email || ''
+          objNew['parent_mobile_number'] = pDetails.mobile || ''
+          
+          objNew['parent_details.father_details.first_name'] = pDetails.first_name || ''
+          objNew['parent_details.father_details.last_name'] = pDetails.last_name || ''
+          objNew['parent_details.father_details.email'] = pDetails.email || ''
+          objNew['parent_details.father_details.mobile'] = pDetails.mobile || ''
+          objNew['parent_details.mother_details.first_name'] = pDetails.first_name || ''
+          objNew['parent_details.mother_details.last_name'] = pDetails.last_name || ''
+          objNew['parent_details.mother_details.email'] = pDetails.email || ''
+          objNew['parent_details.mother_details.mobile'] = pDetails.mobile || ''
+          objNew['parent_details.guardian_details.first_name'] = pDetails.first_name || ''
+          objNew['parent_details.guardian_details.last_name'] = pDetails.last_name || ''
+          objNew['parent_details.guardian_details.email'] = pDetails.email || ''
+          objNew['parent_details.guardian_details.mobile'] = pDetails.mobile || ''
+        }
       }
 
-      if (slug == 'registrationProcessStudentParentDetails') {
+      if (slug == 'registrationProcessStudentParentDetails' || slug?.toLowerCase().includes('kidsclub')) {
         const updatedParentFields = JSON.parse(JSON.stringify(parentFields))
         for (const key in updatedParentFields) {
           if (Array.isArray(updatedParentFields[key])) {
@@ -810,7 +937,21 @@ export default function CreateForm({
         const dataa = updatedParentFields
         const external_fields = [...dataa?.father, ...dataa?.mother, ...dataa?.guardian]
         external_fields?.map((val: any) => {
-          objNew[val?.input_field_name] = getNestedProperty(dynamicFormData, val?.input_field_name)
+          let nestedVal = getNestedProperty(dynamicFormData, val?.input_field_name)
+          
+          // Fallback for mobile and email if getNestedProperty fails because the form field name differs from the payload structure
+          if (!nestedVal && val['input_field_name']?.includes('mobile')) {
+             if (val['input_field_name'].includes('father')) nestedVal = dynamicFormData?.parent_details?.father_details?.mobile || ''
+             else if (val['input_field_name'].includes('mother')) nestedVal = dynamicFormData?.parent_details?.mother_details?.mobile || ''
+             else if (val['input_field_name'].includes('guardian')) nestedVal = dynamicFormData?.parent_details?.guardian_details?.mobile || ''
+          }
+          if (!nestedVal && val['input_field_name']?.includes('email')) {
+             if (val['input_field_name'].includes('father')) nestedVal = dynamicFormData?.parent_details?.father_details?.email || ''
+             else if (val['input_field_name'].includes('mother')) nestedVal = dynamicFormData?.parent_details?.mother_details?.email || ''
+             else if (val['input_field_name'].includes('guardian')) nestedVal = dynamicFormData?.parent_details?.guardian_details?.email || ''
+          }
+
+          objNew[val?.input_field_name] = nestedVal
           objNew[val?.input_field_name + '.id'] = getNestedProperty(dynamicFormData, val?.input_field_name + '.id')
           objNew[val?.input_field_name + '.value'] = getNestedProperty(
             dynamicFormData,
@@ -865,13 +1006,32 @@ export default function CreateForm({
       }
 
       objNew['query'] = getNestedProperty(dynamicFormData, 'query')
+      
+      if (dynamicFormData?.academic_year) {
+        objNew['academic_year'] = dynamicFormData.academic_year
+        objNew['academic_year.id'] = dynamicFormData.academic_year.id
+        objNew['academic_year.value'] = dynamicFormData.academic_year.value
+      }
+      if (dynamicFormData?.school_location) {
+        objNew['school_location'] = dynamicFormData.school_location
+        objNew['school_location.id'] = dynamicFormData.school_location.id
+        objNew['school_location.value'] = dynamicFormData.school_location.value
+      }
+      if (dynamicFormData?.enquiry_number) objNew['enquiry_number'] = dynamicFormData.enquiry_number
+      if (dynamicFormData?.enquiry_type) objNew['enquiry_type'] = dynamicFormData.enquiry_type
+
+      if (dynamicFormData?.other_details) {
+        objNew['other_details'] = dynamicFormData.other_details
+      }
+      if (dynamicFormData?.batch_selection) {
+        objNew['batch_selection'] = dynamicFormData.batch_selection
+      }
 
       setFormData((prevState: any) => ({
         ...prevState,
         ...objNew
       }))
     }
-  }
 }, [dynamicFormData, formfields])
 
   const renderExternalFields = () => {
@@ -1068,31 +1228,6 @@ export default function CreateForm({
     )
   }
 
-  const renderKidsClubEnquiryDetailsFields = () => {
-    return (
-      <>
-        <Grid item xs={12} sx={{ mb: '30px' }}>
-          <Typography variant='h6' color={'text.primary'} sx={{ lineHeight: '22px' }}>
-            Enquiry Details
-          </Typography>
-        </Grid>
-        <Grid item xs={12} sx={{ mb: '30px' }}>
-          <Divider />
-        </Grid>
-        <Grid item container xs={12} spacing={5}>
-          <KidsClubEnquiryDetails
-            activeStageName={activeStageName}
-            validationArray={validationArray}
-            handleChange={handleChange}
-            formData={formData}
-            infoDialog={infoDialog}
-            academicYear={formData['academic_year.id']}
-            schoolLocation={formData['school_location.id']}
-          />
-        </Grid>
-      </>
-    )
-  }
 
   const renderParentDetails = () => {
     return (
@@ -1107,6 +1242,64 @@ export default function CreateForm({
       />
     )
   }
+
+  useEffect(() => {
+    const isKidsClub =
+      slug?.toLowerCase().includes('kidsclub') ||
+      enquiryTypeData?.slug === 'externalUserKidsClub' ||
+      formData.enquiry_type === 'KidsClub' ||
+      enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+
+    if (isKidsClub && formData['academic_year.id']) {
+      const academicYearObj = masterDropDownOptions['academic_year']?.find((opt: any) => opt.id === formData['academic_year.id'])
+      let yearShort = academicYearObj?.attributes?.short_name_two_digit || academicYearObj?.short_name_two_digit
+
+      if (!yearShort && formData['academic_year.value']) {
+        const ayValue = String(formData['academic_year.value'])
+        const parts = ayValue.split('-')
+        if (parts.length === 2) {
+          yearShort = parts[1].trim()
+        }
+      }
+
+      const isRegSlug = slug?.toLowerCase().includes('registrationform')
+      if (yearShort && (isRegSlug || !masterDropDownOptions['school_location'] || masterDropDownOptions['school_location'].length === 0)) {
+        const fetchInitialSchools = async () => {
+          try {
+            const params = {
+              url: '/api/ac-schools/search-school',
+              serviceURL: 'mdm',
+              data: { operator: `academic_year_id = ${yearShort}` }
+            }
+            const response: any = await postRequest(params)
+            if (response?.success && response?.data?.schools) {
+              const uniqueSchools = response.data.schools.reduce((acc: any[], current: any) => {
+                if (!acc.find(item => item.school_id === current.school_id)) {
+                  acc.push(current)
+                }
+                return acc
+              }, [])
+
+              const formattedSchools = uniqueSchools.map((s: any) => ({
+                ...s,
+                id: s.school_id,
+                name: s.name,
+                value: s.school_id,
+                attributes: { ...s, name: s.name }
+              }))
+              setMasterDropDownOptions((prev: any) => ({
+                ...prev,
+                school_location: formattedSchools,
+                kidsclub_location: formattedSchools
+              }))
+            }
+          } catch (error) {
+          }
+        }
+        fetchInitialSchools()
+      }
+    }
+  }, [formData['academic_year.id'], formData['academic_year.value'], masterDropDownOptions['academic_year'], slug, enquiryTypeData])
 
   useEffect(() => {
     if (submitProp) {
@@ -1142,17 +1335,15 @@ export default function CreateForm({
             </Grid>
           )}
           {slug == 'registrationProcessStudentParentDetails' ? renderParentDetails() : null}
-          {slug == 'enquiryStudentDetailRegistrationForm' ||
-          slug == 'createEnquiryNewAdmissionTestForm' ||
-          enquiryTypeData?.slug == 'externalUserNewAdmissionWebsite' ||
-          slug == 'ivtEnquiryForm' ||
-          slug == 'readmissionEnquiryForm' ||
-          slug == 'X_XI_reAdmissionForm' ||
-          slug == 'enquiryStudentDetailRegistrationForm'
+          {(slug == 'enquiryStudentDetailRegistrationForm' ||
+            slug == 'createEnquiryNewAdmissionTestForm' ||
+            enquiryTypeData?.slug == 'externalUserNewAdmissionWebsite' ||
+            slug == 'ivtEnquiryForm' ||
+            slug == 'readmissionEnquiryForm' ||
+            slug == 'X_XI_reAdmissionForm' ||
+            slug == 'enquiryStudentDetailRegistrationForm') &&
+          !slug?.toLowerCase().includes('kidsclub')
             ? renderEnquiryDetailsFields()
-            : null}
-          {enquiryTypeData && enquiryTypeData?.slug == 'externalUserKidsClub'
-            ? renderKidsClubEnquiryDetailsFields()
             : null}
         </Grid>
         {Object.keys(sectionFields).map((mainSection, index) => (
@@ -1181,6 +1372,84 @@ export default function CreateForm({
                   depItem?.['input_dependent_field'] === item?.['input_name'] && isFieldVisible(depItem)
                 );
 
+                const isKidsClub = 
+                  slug?.toLowerCase().includes('kidsclub') ||
+                  enquiryTypeData?.slug === 'externalUserKidsClub' || 
+                  enquiryTypeData?.name?.toLowerCase().includes('kids club') ||
+                  formData?.enquiry_type === 'KidsClub';
+                
+                const isRegStage = 
+                  slug?.toLowerCase().includes('registrationform') || 
+                  activeStageName === ENQUIRY_STAGES.REGISTRATION;
+                
+                let modifiedItem = item;
+                if (isKidsClub && isRegStage && ['enquiry_number', 'enquiry_date', 'enquiry_type'].includes(item.input_field_name)) {
+                  const newValidations = Array.isArray(item.validations) ? [...item.validations] : [];
+                  newValidations[10] = { validation: true, type: 'is_read_only', error_message: '' };
+                  // Add 'readonly' type for MasterDropDown compatibility
+                  newValidations.push({ validation: true, type: 'readonly', error_message: '' });
+                  modifiedItem = {
+                    ...item,
+                    validations: newValidations
+                  };
+                }
+                if (isKidsClub && (item.input_field_name === 'start_date' || item.input_field_name === 'end_date')) {
+                  const newValidations = Array.isArray(item.validations) ? [...item.validations] : [];
+                  newValidations.forEach((v, i) => {
+                    if (v && (v.type === 'readonly' || v.type === 'is_read_only')) {
+                      newValidations[i] = { ...v, validation: false };
+                    }
+                  });
+
+                  modifiedItem = {
+                    ...item,
+                    validations: newValidations
+                  };
+                }
+
+                if (isKidsClub && item.input_field_name === 'student_details.eligible_grade') {
+                  const newValidations = Array.isArray(item.validations) ? [...item.validations] : [];
+                  newValidations[10] = { validation: true, type: 'is_read_only', error_message: '' };
+                  newValidations.push({ validation: true, type: 'readonly', error_message: '' });
+                  modifiedItem = {
+                    ...item,
+                    input_type: 'text',
+                    validations: newValidations
+                  };
+                }
+                
+                if (isKidsClub && isRegStage && (
+                  item.input_field_name?.toLowerCase().includes('parent') || 
+                  item.input_label?.toLowerCase().includes('parent') ||
+                  item.input_name?.toLowerCase().includes('parent') ||
+                  item.input_id?.toLowerCase().includes('parent')
+                )) {
+                  const newValidations = Array.isArray(item.validations) ? [...item.validations] : [];
+                  newValidations[10] = { validation: false, type: 'is_read_only', error_message: '' };
+                  
+                  newValidations.forEach((v, i) => {
+                    if (v && (v.type === 'readonly' || v.type === 'is_read_only')) {
+                      newValidations[i] = { ...v, validation: false };
+                    }
+                  });
+
+                  modifiedItem = {
+                    ...item,
+                    validations: newValidations
+                  };
+
+                  if (item.input_type === 'masterDropdown' && !item.input_default_value && item.input_type_dropdown_options?.length > 0) {
+                    const normalizedOptions = item.input_type_dropdown_options.map((opt: any) => 
+                      typeof opt === 'string' ? { value: opt, displayValue: opt } : opt
+                    );
+                    modifiedItem = {
+                      ...modifiedItem,
+                      input_type: 'dropdown',
+                      input_type_dropdown_options: normalizedOptions
+                    };
+                  }
+                }
+
                 return (
                 <Fragment key={dataIndex}>
                   {isBloodGroup && isFieldVisible(item) && (
@@ -1207,7 +1476,13 @@ export default function CreateForm({
                       }
                     >
                       <FieldRenderer
-                        item={isMedicalYesNo ? { ...item, input_type: 'radio' } : item}
+                        item={
+                          isMedicalYesNo 
+                            ? { ...modifiedItem, input_type: 'radio' } 
+                            : (slug === 'enquiryMedicalDetails' && modifiedItem.input_type === 'textarea')
+                            ? { ...modifiedItem, input_type: 'text' }
+                            : modifiedItem
+                        }
                         formData={formData}
                         setFormData={setFormData}
                         handleChange={handleChange}
@@ -1235,9 +1510,26 @@ export default function CreateForm({
                     <Grid item xs={12} md={8} />
                   ) : null}
 
-                </Fragment>
-                );
-              })}
+            {item.input_field_name === 'end_date' &&
+              (slug?.toLowerCase().includes('kidsclub') ||
+                enquiryTypeData?.slug === 'externalUserKidsClub' ||
+                enquiryTypeData?.name?.toLowerCase().includes('kids club') ||
+                formData?.enquiry_type === 'KidsClub' ||
+                formData?.other_details?.enquiry_type === 'KidsClub') && (
+                <Grid item xs={12}>
+                  <KidsClubBatchTable
+                    formData={formData}
+                    masterDropDownOptions={masterDropDownOptions}
+                    setFormData={setFormData}
+                    setRegDisabled={setRegDisabled}
+                    slug={slug}
+                  />
+                </Grid>
+              )}
+          </Fragment>
+        )
+      })}
+
 
           </FormSection>
         ))}

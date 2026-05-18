@@ -169,6 +169,7 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
   const [competencyTest, setCompetencyTest] = useState<boolean>(false)
   const [competencyTestSuccess, setCompetencyTestSuccess] = useState<boolean>(false)
   const [successDialogTitle, setSuccessDialogTitle] = useState<string>('')
+  const [activeStageProp, setActiveStageProp] = useState<string | undefined>(undefined)
   const [refresh, setRefresh] = useState<boolean>(false)
   const [openErrorDialog, setOpenErrorDialog] = useState<boolean>(false)
   const [closeEnquiryDialog, setCloseEnquiryDialog] = useState(false)
@@ -178,6 +179,13 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
   const [mergedEnquiries, setMergedEnquiries] = useState<any>(null)
   const [mobileView, setMobileView] = useState<boolean>(false)
   const [open, setOpen] = useState(false)
+  const [parentInteractionDialog, setParentInteractionDialog] = useState<boolean>(false)
+  const [isInteractionStart, setIsInteractionStart] = useState<boolean>(false)
+  const [isInteractionReschedule, setIsInteractionReschedule] = useState<boolean>(false)
+  const [isInteractionCancel, setIsInteractionCancel] = useState<boolean>(false)
+  const [deleteEnquiryDialog, setDeleteEnquiryDialog] = useState<boolean>(false)
+  const [deleteEnquirySuccess, setDeleteEnquirySuccess] = useState<boolean>(false)
+
 
   const handleOpen = () => setOpen(true)
 
@@ -260,6 +268,40 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
   }
   const handleErrorClose = () => {
     setOpenErrorDialog(false)
+  }
+
+  const handleDeleteEnquiryOpen = () => {
+    setDeleteEnquiryDialog(true)
+    setAnchorElOne(null)
+  }
+
+  const handleDeleteEnquiryClose = () => {
+    setDeleteEnquiryDialog(false)
+  }
+
+  const handleDeleteEnquiryConfirm = async () => {
+    setGlobalState({ isLoading: true })
+    const params = {
+      url: `marketing/enquiry/softDeleteEnquiry`,
+      data: {
+        enquiry_id: selectedRowId
+      },
+      serviceURL: 'marketing',
+      authToken: authToken
+    }
+    const response = await postRequest(params)
+    if (response?.status === 200) {
+      setDeleteEnquiryDialog(false)
+      setDeleteEnquirySuccess(true)
+    } else {
+      toast.error(response?.error?.message || 'Failed to delete enquiry', { duration: 2000 })
+    }
+    setGlobalState({ isLoading: false })
+  }
+
+  const handleDeleteEnquirySuccessClose = () => {
+    setDeleteEnquirySuccess(false)
+    router.push('/enquiries')
   }
   const enquirerStatusObj: any = {
     Open: { title: 'Open', color: 'success' },
@@ -712,6 +754,12 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
   const handleSchoolTourDialogClose = () => {
     setSchoolTourDialog(false)
   }
+  const handleParentInteractionDialogClose = () => {
+    setParentInteractionDialog(false)
+    setIsInteractionStart(false)
+    setIsInteractionReschedule(false)
+    setIsInteractionCancel(false)
+  }
   const handleFollowUpDialogClose = () => {
     setFollowUpDialog(false)
     window.location.reload()
@@ -859,7 +907,7 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
                                   )
                                 })
                               : null}
-                          </CustomList>
+                           </CustomList>
                         </CustomPopover>
                       </Box>
                       {chipsLabel2.map((label, index) => (
@@ -1081,6 +1129,23 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
                           />
                         </MenuItem>
                       </Can>
+
+                      {(enquiryDetails?.student_type === 'Vibgyor Student' ||
+                        enquiryDetails?.other_details?.student_type === 'Vibgyor Student') &&
+                        localStorage.getItem(`skipped_interaction_${selectedRowId}`) === 'true' && (
+                          <MenuItem>
+                            <ListItemText
+                              primary='Parent Interaction'
+                              onClick={() => {
+                                localStorage.setItem(`force_active_stage_${selectedRowId}`, 'Parent interaction')
+                                localStorage.removeItem(`skipped_interaction_${selectedRowId}`)
+                                setActiveStageProp('Parent interaction')
+                                setAnchorElOne(null)
+                              }}
+                            />
+                          </MenuItem>
+                        )}
+
                       <Can pagePermission={[PERMISSIONS?.REGISTRATION_FOLOWUP]} action={'HIDE'}>
                         <MenuItem>
                           <ListItemText
@@ -1105,6 +1170,11 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
                       <MenuItem>
                         <ListItemText primary='Close Enquiry' onClick={handleChipDelete} />
                       </MenuItem>
+                      <Can pagePermission={[PERMISSIONS?.DELETE_ENQUIRY_APPLY_ACTION]} action={'HIDE'}>
+                          <MenuItem>
+                            <ListItemText primary='Delete Enquiry' onClick={handleDeleteEnquiryOpen} />
+                          </MenuItem>
+                      </Can>
                     </CustomListOne>
                   </CustomPopoverOne>
                 </Box>
@@ -1135,6 +1205,12 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
                 setRefreshList={setRefresh}
                 refreshList={refresh}
                 setFormCompletion={setFormCompletion}
+                activeStageNameProp={activeStageProp}
+                setParentInteractionDialog={setParentInteractionDialog}
+                setIsInteractionStart={setIsInteractionStart}
+                setIsInteractionReschedule={setIsInteractionReschedule}
+                setIsInteractionCancel={setIsInteractionCancel}
+                refreshData={refresh}
               />
             ) : null}
             {!mobileView && (
@@ -1256,6 +1332,25 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
           setMinimized={setSchoolVisitMinimized}
           enquiryId={selectedRowId}
           enquiryType={enquiryCounts?.enquiry_type}
+          stageType={ENQUIRY_STAGES.SCHOOL_VISIT}
+          setRefresh={setRefresh}
+        />
+      )}
+      {parentInteractionDialog && (
+        <SchoolTourDialog
+          openDialog={parentInteractionDialog}
+          title='Schedule Parent Interaction'
+          handleClose={handleParentInteractionDialogClose}
+          setSchoolTourDialog={setParentInteractionDialog}
+          minimized={schoolVisitMinimized}
+          setMinimized={setSchoolVisitMinimized}
+          enquiryId={selectedRowId}
+          enquiryType={enquiryCounts?.enquiry_type}
+          stageType={ENQUIRY_STAGES.PARENT_INTERACTION}
+          defaultIsStart={isInteractionStart}
+          defaultIsReschedule={isInteractionReschedule}
+          defaultIsCancel={isInteractionCancel}
+          setRefresh={setRefresh}
         />
       )}
       {followUpDialog && (
@@ -1305,6 +1400,34 @@ const Enquiries = ({ edit, view, selectedRowId, registration, app, authToken }: 
           header='Close Enquiry'
           enquiryId={selectedEnquiry?.enquiry_id}
           //setCloseEnquirySuccess={setCloseEnquirySuccess}
+        />
+      )}
+      {deleteEnquiryDialog && (
+        <Dialog open={deleteEnquiryDialog} maxWidth='xs' fullWidth>
+          <Box sx={{ p: 6 }}>
+            <Typography variant='h6' sx={{ mb: 2 }}>
+              Delete Enquiry
+            </Typography>
+            <Typography variant='body2' color='text.secondary' sx={{ mb: 6 }}>
+              Are you sure you want to delete this enquiry? This action cannot be undone.
+            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 3 }}>
+              <Button variant='outlined' onClick={handleDeleteEnquiryClose}>
+                Cancel
+              </Button>
+              <Button variant='contained' color='error' onClick={handleDeleteEnquiryConfirm}>
+                Delete
+              </Button>
+            </Box>
+          </Box>
+        </Dialog>
+      )}
+
+      {deleteEnquirySuccess && (
+        <SuccessDialog
+          openDialog={deleteEnquirySuccess}
+          title='Enquiry Deleted Successfully!'
+          handleClose={handleDeleteEnquirySuccessClose}
         />
       )}
       {ReopenEnquiryDialogbox && (

@@ -14,6 +14,7 @@ export const ENQUIRY_STATUS = {
 export const ENQUIRY_STAGES = {
   ENQUIRY: 'Enquiry',
   SCHOOL_VISIT: 'School visit',
+  PARENT_INTERACTION: 'Parent interaction',
   REGISTRATION: 'Registration',
   REGISTRATION_FEES: 'Academic Kit Selling', //'Registration Fees',
   NEW_REGISTRATION_FEES: 'Academic Kit Selling',
@@ -59,7 +60,8 @@ export const PERMISSIONS = {
   RAISE_EXCEPTION_BUTTON: 'raise_exception_button',
   DOWNLOAD_BUTTON: 'download_button',
   NEW_REQUEST_BUTTON: 'new_request_button',
-  GR_REPORT: 'gr_report'
+  GR_REPORT: 'gr_report',
+  DELETE_ENQUIRY_APPLY_ACTION: 'delete_enqiry_apply_action'
 }
 export const FEETYPES = {
   admissionFees: 1,

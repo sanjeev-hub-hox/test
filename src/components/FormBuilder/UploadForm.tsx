@@ -41,9 +41,18 @@ export default function UploadForms({ enquiryId, stage, activeStageName, setRref
 
     const response = await getRequest(params)
     if (response.status) {
+      const isKidsClub = response.data?.other_details?.enquiry_type === 'KidsClub' || 
+                         response.data?.enquiry_type === 'KidsClub' ||
+                         response.data?.enquiry_type_id?.name?.includes('Kids club');
+      
       if (!stage) {
         const dd = response.data.documents
-          ?.filter((val: any) => val?.stage == 'Registration')
+          ?.filter((val: any) => {
+            if (isKidsClub) {
+              return val?.stage === 'Registration' || val?.stage === 'Admission Granted' || !val?.stage || val?.stage.trim() === '';
+            }
+            return val?.stage == 'Registration'
+          })
           .map((val: any) => {
             return {
               id: val.document_id,

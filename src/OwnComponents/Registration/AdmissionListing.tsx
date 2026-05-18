@@ -1791,6 +1791,8 @@ function AdmissionListing() {
           setMinimized={setMinimized}
           enquiryId={actionEnquiryId}
           enquiryType={admissionList?.find((row: any) => row.id === actionEnquiryId)?.applicationFor}
+          stageType={ENQUIRY_STAGES.SCHOOL_VISIT}
+          setRefresh={setRefresh}
           mode='list'
         />
       )}

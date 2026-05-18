@@ -191,7 +191,7 @@ const NotificationDialog = ({ openDrawer, handleClose, title, userId, userType, 
   const fetchData = (page = 1, limit = ITEMS_PER_LOAD) => {
     setIsLoading(true)
     postRequest({
-      url: 'notification/notification-to-user/by-user',
+      url: '/notification-to-user/by-user',
       data: {
         user_id: userId,
         user_type: userType,
@@ -200,7 +200,7 @@ const NotificationDialog = ({ openDrawer, handleClose, title, userId, userType, 
         type: 'active'
         // communication_master_id: process.env.NEXT_PUBLIC_ANNOUNCEMENT_COMMUNICATION_MASTER_ID
       },
-      serviceURL: 'notification'
+      serviceURL: 'communication'
     })
       .then(res => {
         const data = res?.data?.data

@@ -3,7 +3,7 @@ import { Autocomplete, TextField, Box, Typography, Chip } from '@mui/material'
 import { getRequest } from 'src/services/apiService'
 import { useGlobalContext } from 'src/@core/global/GlobalContext'
 import debounce from 'lodash.debounce'
-import { useRouter } from 'next/router'
+// import { useRouter } from 'next/router'
 
 interface ParentDetails {
   global_id?: string
@@ -44,21 +44,21 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
   const [flatOptions, setFlatOptions] = useState<ParentOption[]>([])
   const [inputValue, setInputValue] = useState('')
   const [selectedOption, setSelectedOption] = useState<ParentOption | null>(null)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  // const [isInitialLoad, setIsInitialLoad] = useState(true)
   const { setGlobalState } = useGlobalContext()
 
-  const buildParentName = (enq?: EnrollmentOption): string => {
-    if (!enq) return ''
-    if (enq.parent_name?.trim()) return enq.parent_name.trim()
-    const nameFrom = (p?: { first_name?: string; last_name?: string }) =>
-      p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : ''
-    return (
-      nameFrom(enq.parent_details?.father_details) ||
-      nameFrom(enq.parent_details?.mother_details) ||
-      nameFrom(enq.parent_details?.guardian_details) ||
-      ''
-    )
-  }
+  // const buildParentName = (enq?: EnrollmentOption): string => {
+  //   if (!enq) return ''
+  //   if (enq.parent_name?.trim()) return enq.parent_name.trim()
+  //   const nameFrom = (p?: { first_name?: string; last_name?: string }) =>
+  //     p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : ''
+  //   return (
+  //     nameFrom(enq.parent_details?.father_details) ||
+  //     nameFrom(enq.parent_details?.mother_details) ||
+  //     nameFrom(enq.parent_details?.guardian_details) ||
+  //     ''
+  //   )
+  // }
 
   // Pre-load when editing an existing record — read from formData.referral_source directly
   useEffect(() => {
@@ -76,7 +76,7 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
           if (found) {
             setSelectedOption(found)
             setInputValue(found.parent_phone || '')
-            setOptions([found])
+            setFlatOptions([found])
           }
         } catch (err) {
           // console.error('Error pre-loading parent:', err)
@@ -93,9 +93,36 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
     if (!EnrollmentParentSource) {
       setSelectedOption(null)
       setInputValue('')
-      setOptions([])
+      setFlatOptions([])
     }
   }, [EnrollmentParentSource])
+
+  const flattenToParentOptions = (data: EnrollmentOption[]): ParentOption[] => {
+    const results: ParentOption[] = []
+    data.forEach((enq) => {
+      const addParent = (
+        details: any,
+        type: 'Father' | 'Mother' | 'Guardian'
+      ) => {
+        if (!details?.mobile) return
+        results.push({
+          id: `${enq.id}-${type.toLowerCase()}`,
+          enrollment_number: enq.enrollment_number,
+          academic_year: enq.academic_year,
+          student_name: enq.student_name,
+          parent_type: type,
+          parent_name: `${details.first_name || ''} ${details.last_name || ''}`.trim(),
+          parent_phone: details.mobile,
+          parent_email: details.email,
+          original_data: enq
+        })
+      }
+      if (enq.parent_details?.father) addParent(enq.parent_details.father, 'Father')
+      if (enq.parent_details?.mother) addParent(enq.parent_details.mother, 'Mother')
+      if (enq.parent_details?.guardian) addParent(enq.parent_details.guardian, 'Guardian')
+    })
+    return results
+  }
 
   const fetchOptions = async (search: string) => {
     if (!EnrollmentParentSource) return
@@ -110,7 +137,7 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
       return flattened
     } catch (err) {
       // console.error('Error fetching parent source:', err)
-      setOptions([])
+      setFlatOptions([])
     } finally {
       setGlobalState({ isLoading: false })
     }
@@ -122,115 +149,6 @@ const EnrollmentParentSource = ({ EnrollmentParentSource, handleChange, formData
     return () => debouncedFetch.cancel()
   }, [debouncedFetch])
 
-  // **NEW: Fetch enquiry details and populate parent source**
-  useEffect(() => {
-    const fetchEnquiryDetails = async () => {
-      // Wait for router to be ready and enquiryId to be available
-      if (!router.isReady || !isInitialLoad || !enquiryId || typeof enquiryId !== 'string') return
-
-      try {
-        setGlobalState({ isLoading: true })
-
-        // Fetch the enquiry details using the enquiry ID from URL
-        const params = { url: `marketing/enquiry/${enquiryId}` }
-        const res = await getRequest(params)
-
-        if (res?.data?.enquiry_parent_source) {
-          const parentSource = res.data.enquiry_parent_source
-
-          // Extract parent source details
-          const parentSourceId = parentSource.id
-          const parentSourcePhone = parentSource.value
-          const parentSourceName = parentSource.name
-          const parentSourceEnrollment = parentSource.enquirynumber
-          const parentType = res.data.parent_type // From root level of response
-
-          // Try to fetch full details from search API
-          if (parentSourceEnrollment) {
-            const encoded = encodeURIComponent(parentSourceEnrollment)
-            const searchParams = { url: `marketing/enquiry/getEnrollmentAndParentNumber?search=${encoded}` }
-            const searchRes = await getRequest(searchParams)
-            const searchData = Array.isArray(searchRes?.data) ? searchRes.data : []
-
-            if (searchData.length > 0) {
-              const flattened = flattenToParentOptions(searchData)
-              setFlatOptions(flattened)
-
-              // Find the matching option based on enrollment number and parent type
-              const found = flattened.find(opt => {
-                const matchesEnrollment = opt.enrollment_number === parentSourceEnrollment
-                const matchesPhone = opt.parent_phone === parentSourcePhone
-                const matchesType = parentType ? opt.parent_type === parentType : true
-
-                return matchesEnrollment && matchesPhone && matchesType
-              })
-
-              if (found) {
-                setSelectedOption(found)
-                setInputValue(`${found.enrollment_number} | ${found.parent_phone}`)
-
-                // Update formData with full details
-                setFormData((prev: any) => ({
-                  ...prev,
-                  'enquiry_parent_source.id': parentSourceId,
-                  'enquiry_parent_source.value': parentSourcePhone,
-                  'enquiry_parent_source.enquirynumber': parentSourceEnrollment,
-                  'enquiry_parent_source.name': parentSourceName,
-                  'enquiry_parent_source.parent_type': found.parent_type,
-                  'enquiry_parent_source.parent_email': found.parent_email || ''
-                }))
-
-                setIsInitialLoad(false)
-                setGlobalState({ isLoading: false })
-                return
-              }
-            }
-          }
-
-          // If not found in search API, create manual option from enquiry data
-          if (parentSourcePhone && parentSourceEnrollment && parentSourceName) {
-            const manualOption: ParentOption = {
-              id: `${parentSourceId}-${parentType?.toLowerCase() || 'parent'}`,
-              enrollment_number: parentSourceEnrollment,
-              academic_year: undefined,
-              student_name: undefined,
-              parent_type: (parentType as 'Father' | 'Mother' | 'Guardian') || 'Father',
-              parent_name: parentSourceName,
-              parent_phone: parentSourcePhone,
-              parent_email: undefined,
-              original_data: {
-                id: parentSourceId,
-                enrollment_number: parentSourceEnrollment,
-                parent_phone: parentSourcePhone,
-                parent_name: parentSourceName
-              } as EnrollmentOption
-            }
-
-            setFlatOptions([manualOption])
-            setSelectedOption(manualOption)
-            setInputValue(`${manualOption.enrollment_number} | ${manualOption.parent_phone}`)
-
-            // Update formData
-            setFormData((prev: any) => ({
-              ...prev,
-              'enquiry_parent_source.id': parentSourceId,
-              'enquiry_parent_source.value': parentSourcePhone,
-              'enquiry_parent_source.enquirynumber': parentSourceEnrollment,
-              'enquiry_parent_source.name': parentSourceName,
-              'enquiry_parent_source.parent_type': parentType || 'Father',
-              'enquiry_parent_source.parent_email': ''
-            }))
-          }
-        }
-      } catch (err) {
-      } finally {
-        setGlobalState({ isLoading: false })
-        setIsInitialLoad(false)
-      }
-    }
-
-    fetchEnquiryDetails()
-  }, [router.isReady, enquiryId])
 
   const selectedDisplay = selectedOption ? `${selectedOption.enrollment_number} | ${selectedOption.parent_phone}` : ''
 

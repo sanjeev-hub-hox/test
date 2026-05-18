@@ -15,6 +15,7 @@ import { ENQUIRY_STAGES } from 'src/utils/constants'
 import { FormControl, FormControlLabel, FormLabel, Radio, RadioGroup } from '@mui/material'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
+import KidsClubBatchTable from './KidsClubBatchTable'
 
 const academicYearApiUrl =
   '/api/ac-academic-years?fields[1]=name&fields[2]=short_name&fields[3]=short_name_two_digit&fields[4]=is_visible&filters[is_visible][$eq]=1&sort[0]=id:asc'
@@ -85,7 +86,10 @@ export default function KidsClubEnquiryDetails({
   formData,
   infoDialog,
   academicYear,
-  activeStageName
+  activeStageName,
+  masterDropDownOptions,
+  setFormData,
+  setRegDisabled
 }: any) {
   const [academicYearOptions, setAcademicYearOptions] = useState<any>([])
   const [schoolOptions, setSchoolOptions] = useState<any>([])
@@ -276,7 +280,7 @@ export default function KidsClubEnquiryDetails({
             // }}
             //minDate={item?.validations?.[11]?.validation ? dayjs() : undefined}
 
-            disabled={true}
+            disabled={activeStageName === ENQUIRY_STAGES.REGISTRATION}
             slots={{
               openPickerIcon: CalendarIcon
               // textField: params => (
@@ -408,6 +412,13 @@ export default function KidsClubEnquiryDetails({
           />
         </Grid>
       )}
+
+      <KidsClubBatchTable 
+        formData={formData} 
+        masterDropDownOptions={masterDropDownOptions} 
+        setFormData={setFormData}
+        setRegDisabled={setRegDisabled}
+      />
     </>
   )
 }

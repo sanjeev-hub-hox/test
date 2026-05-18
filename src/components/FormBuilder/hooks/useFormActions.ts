@@ -35,6 +35,7 @@ interface UseFormActionsProps {
     validateGuestStudent: () => any
     validateStudentEnrollment: () => any
     validatePincodeFormat: () => any
+    validateDateRange: () => any
   }
   dialogHandlers: {
     setOpenReopenDialog: (open: boolean) => void
@@ -83,7 +84,8 @@ export const useFormActions = ({
     validateExternalParentFields,
     validateGuestStudent,
     validateStudentEnrollment,
-    validatePincodeFormat
+    validatePincodeFormat,
+    validateDateRange
   } = validationFunctions
 
   const {
@@ -96,6 +98,8 @@ export const useFormActions = ({
   } = dialogHandlers
 
   const [formTouched, setFormTouched] = useState(false)
+
+
   const findObjectById = (array: any[], id: any) => {
     return array?.find((obj: any) => obj.id == id)
   }
@@ -125,6 +129,9 @@ export const useFormActions = ({
         const elements = sectionFields[key]
         for (const element of elements) {
           if (element.input_dependent_field === name) {
+            if (element.input_default_value?.includes('mdm/schools')) {
+              continue
+            }
             const options = await selectOptions(element.input_default_value)
             setMasterDropDownOptions((prevState: any) => ({
               ...prevState,
@@ -202,10 +209,11 @@ export const useFormActions = ({
   )
 
   const getEligibleGrade = useCallback(async (formValues: any) => {
-    if (!formValues['academic_year.id'] || !formValues['school_location.id'] || !formValues['student_details.dob'])
+    const schoolId = formValues['school_location.id'] || formValues['kidsclub_location.id']
+    if (!formValues['academic_year.id'] || !schoolId || !formValues['student_details.dob'])
       return null
     const params = {
-      url: `marketing/enquiry/eligible-grade?academicYearId=${formValues['academic_year.id']}&schoolId=${formValues['school_location.id']}&dob=${formValues['student_details.dob']}`,
+      url: `marketing/enquiry/eligible-grade?academicYearId=${formValues['academic_year.id']}&schoolId=${schoolId}&dob=${formValues['student_details.dob']}`,
       serviceURL: 'marketing'
     }
     try {
@@ -322,34 +330,151 @@ export const useFormActions = ({
         setFormData((prev: any) => ({
           ...prev,
           ['school_location.id']: null,
-          ['school_location.value']: null
+          ['school_location.value']: null,
+          ['kidsclub_location.id']: null,
+          ['kidsclub_location.value']: null
         }))
-        // Fetch new schools for selected year (Skip for Kids Club)
-        const isKidsClub =
-          enquiryTypeData?.slug === 'createKidsClubEnquiry' ||
-          enquiryTypeData?.slug === 'externalUserKidsClub' ||
-          enquiryTypeData?.name?.toLowerCase()?.includes('kids club') ||
-          slug === 'createEnquiryKidsClubForm'
 
-        if (!isKidsClub) {
-          const schools = await selectOptions(`mdm/schools?filters[academic_year][id]=${value}`)
-          setMasterDropDownOptions((prev: any) => ({
-            ...prev,
-            school_location: schools
-          }))
+        const isKidsClub =
+          enquiryTypeData?.slug === 'externalUserKidsClub' ||
+          formData.enquiry_type === 'KidsClub' ||
+          slug === 'createEnquiryKidsClubForm' ||
+          enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+
+        if (isKidsClub && value) {
+          const fetchSchools = async () => {
+            try {
+              const academicYearObj = masterDropDownOptions['academic_year']?.find((opt: any) => opt.id === value)
+              const yearShort = academicYearObj?.attributes?.short_name_two_digit || academicYearObj?.short_name_two_digit
+              
+              if (yearShort) {
+                const params = {
+                  url: '/api/ac-schools/search-school',
+                  serviceURL: 'mdm',
+                  data: { operator: `academic_year_id = ${yearShort}` }
+                }
+                const response: any = await postRequest(params)
+                if (response?.success && response?.data?.schools) {
+                  const uniqueSchools = response.data.schools.reduce((acc: any[], current: any) => {
+                    if (!acc.find(item => item.school_id === current.school_id)) {
+                      acc.push(current)
+                    }
+                    return acc
+                  }, [])
+
+                  const formattedSchools = uniqueSchools.map((s: any) => ({
+                    ...s,
+                    id: s.school_id,
+                    name: s.name,
+                    value: s.school_id,
+                    attributes: { ...s, name: s.name }
+                  }))
+                  
+                  setMasterDropDownOptions((prev: any) => ({
+                    ...prev,
+                    school_location: formattedSchools,
+                    kidsclub_location: formattedSchools
+                  }))
+                }
+              }
+            } catch (error) {
+            }
+          }
+          fetchSchools()
+        }
+      }
+
+      if ((name === 'school_location' || name === 'kidsclub_location') && value) {
+        const isKidsClubForGrade =
+          enquiryTypeData?.slug === 'externalUserKidsClub' ||
+          formData.enquiry_type === 'KidsClub' ||
+          slug === 'createEnquiryKidsClubForm' ||
+          enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+
+        if (isKidsClubForGrade) {
+          const fetchGradesBySchool = async () => {
+            try {
+              const academicYearObj = masterDropDownOptions['academic_year']?.find(
+                (opt: any) => opt.id === formData['academic_year.id']
+              )
+              const yearShort =
+                academicYearObj?.attributes?.short_name_two_digit ||
+                academicYearObj?.short_name_two_digit
+
+              if (yearShort && value) {
+                const params = {
+                  url: '/api/ac-schools/search-school',
+                  serviceURL: 'mdm',
+                  data: { operator: `academic_year_id = ${yearShort} and school_id = ${value}` }
+                }
+                const response: any = await postRequest(params)
+                if (response?.success && response?.data?.schools) {
+                  const uniqueGrades = response.data.schools
+                    .reduce((acc: any[], current: any) => {
+                      if (!acc.find((g: any) => g.grade_id === current.grade_id)) acc.push(current)
+                      return acc
+                    }, [])
+                    .sort((a: any, b: any) => (a.grade_id || 0) - (b.grade_id || 0))
+
+                  const formattedGrades = uniqueGrades.map((g: any) => ({
+                    ...g,
+                    id: g.grade_id,
+                    name: g.grade_name,
+                    value: g.grade_id,
+                    attributes: { ...g, name: g.grade_name }
+                  }))
+
+                  setMasterDropDownOptions((prev: any) => ({
+                    ...prev,
+                    grade: formattedGrades,
+                    'student_details.grade': formattedGrades
+                  }))
+
+                  setFormData((prev: any) => ({
+                    ...prev,
+                    grade: null,
+                    'grade.id': null,
+                    'grade.value': null,
+                    'student_details.grade': null,
+                    'student_details.grade.id': null,
+                    'student_details.grade.value': null
+                  }))
+                }
+              }
+            } catch (error) {}
+          }
+          fetchGradesBySchool()
         }
       }
 
       if (
-        (name === 'student_details.dob' || name === 'school_location' || name === 'academic_year') &&
+        (name === 'student_details.dob' || name === 'school_location' || name === 'kidsclub_location' || name === 'academic_year') &&
         formData['academic_year.id'] &&
-        (formData['school_location.id'] || (name === 'school_location' && value))
+        (formData['school_location.id'] || formData['kidsclub_location.id'] || ( (name === 'school_location' || name === 'kidsclub_location') && value))
       ) {
         const eligibleGrade = await getEligibleGrade({
           ...formData,
-          [name + (name === 'school_location' ? '.id' : '')]: value
+          [name + ( (name === 'school_location' || name === 'kidsclub_location') ? '.id' : '')]: value
         })
-        setFormData((prev: any) => ({ ...prev, ['student_details.eligible_grade']: eligibleGrade }))
+        
+        const isKidsClub =
+          enquiryTypeData?.slug === 'externalUserKidsClub' ||
+          formData.enquiry_type === 'KidsClub' ||
+          slug === 'createEnquiryKidsClubForm' ||
+          enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+
+        if (isKidsClub) {
+          setFormData((prev: any) => ({
+            ...prev,
+            ['student_details.eligible_grade']: eligibleGrade,
+            ['student_details.eligible_grade.value']: eligibleGrade
+          }))
+        } else {
+          setFormData((prev: any) => ({
+            ...prev,
+            ['student_details.eligible_grade']: eligibleGrade
+          }))
+        }
       }
 
       if (name === 'employee_id') {
@@ -429,7 +554,33 @@ export const useFormActions = ({
         }))
       }
 
-      const fetchAndPopulateStudent = async (enr: string) => {
+      if (
+        (name === 'parent_type' || name === 'parent_type.id') &&
+        (
+          enquiryTypeData?.slug === 'externalUserKidsClub' ||
+          slug?.toLowerCase().includes('kidsclub') ||
+          formData?.enquiry_type === 'KidsClub' ||
+          enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+        )
+      ) {
+        const pTypeLower = String(value || '').toLowerCase()
+        let prefix = ''
+        if (pTypeLower === 'father') prefix = 'parent_details.father_details'
+        else if (pTypeLower === 'mother') prefix = 'parent_details.mother_details'
+        else if (pTypeLower === 'guardian') prefix = 'parent_details.guardian_details'
+
+        if (prefix) {
+          setFormData((prev: any) => ({
+            ...prev,
+            parent_first_name: prev[`${prefix}.first_name`] || '',
+            parent_last_name: prev[`${prefix}.last_name`] || '',
+            parent_email_id: prev[`${prefix}.email`] || '',
+            parent_mobile_number: prev[`${prefix}.mobile`] || '',
+          }))
+        }
+      }
+
+      const fetchAndPopulateStudent = async (enr: string, fieldName: string) => {
         try {
           setGlobalState({ isLoading: true })
           const data: any = await getRequest({ url: `marketing/admission/${enr}/student-details` })
@@ -455,15 +606,26 @@ export const useFormActions = ({
               ['student_details.gender.id']: sd?.gender?.id,
               ['student_details.gender.value']: String(sd?.gender?.value || ''),
               ['student_details.dob']: sd?.dob,
+              // parent_type — set all three variants so every dropdown type binds correctly
               ['parent_type']: data?.data?.parent_type,
+              ['parent_type.id']: data?.data?.parent_type,
+              ['parent_type.value']: data?.data?.parent_type,
+              // Father details
               ['parent_details.father_details.first_name']: pd?.father_details?.first_name,
               ['parent_details.father_details.last_name']: pd?.father_details?.last_name,
               ['parent_details.father_details.mobile']: pd?.father_details?.mobile,
               ['parent_details.father_details.email']: pd?.father_details?.email,
+              // Mother details
               ['parent_details.mother_details.first_name']: pd?.mother_details?.first_name,
               ['parent_details.mother_details.last_name']: pd?.mother_details?.last_name,
               ['parent_details.mother_details.mobile']: pd?.mother_details?.mobile,
               ['parent_details.mother_details.email']: pd?.mother_details?.email,
+              // Guardian details
+              ['parent_details.guardian_details.first_name']: pd?.guardian_details?.first_name,
+              ['parent_details.guardian_details.last_name']: pd?.guardian_details?.last_name,
+              ['parent_details.guardian_details.mobile']: pd?.guardian_details?.mobile,
+              ['parent_details.guardian_details.email']: pd?.guardian_details?.email,
+              // Residential
               ['residential_details.current_address.street']: rd?.current_address?.street,
               ['residential_details.current_address.house']: rd?.current_address?.house,
               ['residential_details.current_address.landmark']: rd?.current_address?.landmark,
@@ -473,7 +635,8 @@ export const useFormActions = ({
               ['residential_details.current_address.state.id']: rd?.current_address?.state?.id,
               ['residential_details.current_address.state.value']: rd?.current_address?.state?.value,
               ['residential_details.current_address.city.id']: rd?.current_address?.city?.id,
-              ['residential_details.current_address.city.value']: rd?.current_address?.city?.value
+              ['residential_details.current_address.city.value']: rd?.current_address?.city?.value,
+              error: { ...prev.error, [fieldName]: '' }
             }))
 
             if (setApiResponseType && data?.data?.type) setApiResponseType(data?.data?.type)
@@ -481,12 +644,26 @@ export const useFormActions = ({
             if (setApiResponseType) {
               setApiResponseType({
                 status: true,
-                message: 'Student Details Not Found!',
-                handleClose: () => window.location.reload()
+                message: data?.message || 'Student Details Not Found!'
               })
             }
+            setFormData((prev: any) => ({
+              ...prev,
+              error: { ...prev.error, [fieldName]: data?.message || 'Student Details Not Found!' }
+            }))
           }
-        } catch (err) {
+        } catch (err: any) {
+          const errMsg = err?.response?.data?.message || 'Student Details Not Found!'
+          if (setApiResponseType) {
+            setApiResponseType({
+              status: true,
+              message: errMsg
+            })
+          }
+          setFormData((prev: any) => ({
+            ...prev,
+            error: { ...prev.error, [fieldName]: errMsg }
+          }))
         } finally {
           setGlobalState({ isLoading: false })
         }
@@ -496,7 +673,7 @@ export const useFormActions = ({
         (name === 'student_details.enrolment_number' || name === 'enrollment_no' || name === 'enrollment_number') &&
         value?.length >= 13
       ) {
-        await fetchAndPopulateStudent(value)
+        await fetchAndPopulateStudent(value, name)
       }
 
       // Sibling / Vibgyor ID side effects
@@ -694,6 +871,7 @@ export const useFormActions = ({
     const guestStudentErrors = validateGuestStudent()
     const studentEnrollmentErrors = validateStudentEnrollment()
     const pincodeErrors = validatePincodeFormat()
+    const dateRangeErrors = validateDateRange()
 
     let externalParentErrors: any = { status: false }
     if (slug === 'registrationProcessStudentParentDetails') {
@@ -714,9 +892,10 @@ export const useFormActions = ({
       externalParentErrors?.status ||
       externalResidentialDetailsErrors?.status ||
       kidsClubEnquiryFields?.status ||
-      guestStudentErrors?.status ||
       studentEnrollmentErrors?.status ||
-      pincodeErrors?.status
+      pincodeErrors?.status ||
+      dateRangeErrors?.status ||
+      !!(formData?.error?.['enrollment_no'] || formData?.error?.['enrollment_number'] || formData?.error?.['student_details.enrolment_number'])
     ) {
       const allErrors = {
         ...errors,
@@ -727,15 +906,29 @@ export const useFormActions = ({
         ...kidsClubEnquiryFields?.errors,
         ...guestStudentErrors?.errors,
         ...studentEnrollmentErrors?.errors,
-        ...pincodeErrors?.errors
+        ...pincodeErrors?.errors,
+        ...dateRangeErrors?.errors
       }
+      
+      if (formData?.error?.['enrollment_no']) allErrors['enrollment_no'] = formData.error['enrollment_no']
+      if (formData?.error?.['enrollment_number']) allErrors['enrollment_number'] = formData.error['enrollment_number']
+      if (formData?.error?.['student_details.enrolment_number']) allErrors['student_details.enrolment_number'] = formData.error['student_details.enrolment_number']
 
       if (pincodeErrors?.status) {
         const pincodeErrorMsg = Object.values(pincodeErrors.errors)[0] as string
         toast.error(pincodeErrorMsg || 'Invalid pincode format')
       } else {
         const errorCount = Object.keys(allErrors).length
-        toast.error(`Please fill ${errorCount} required field${errorCount > 1 ? 's' : ''}`)
+        const fieldLabels = Object.keys(allErrors)
+          .map(key => {
+            let label = key.replace(/\.id$/, '').replace(/\.value$/, '')
+            label = label.split('.').pop() || label
+            return label.replace(/_/g, ' ')
+          })
+          .filter((value, index, self) => self.indexOf(value) === index) // Unique labels
+          .join(', ')
+
+        toast.error(`Please fill ${errorCount} required field${errorCount > 1 ? 's' : ''}: ${fieldLabels}`)
       }
 
       setFormData((prevState: any) => ({
@@ -756,6 +949,7 @@ export const useFormActions = ({
           errorFieldToScroll = Object.keys(externalResidentialDetailsErrors?.errors)[0]
         else if (kidsClubEnquiryFields?.status) errorFieldToScroll = Object.keys(kidsClubEnquiryFields?.errors)[0]
         else if (guestStudentErrors?.status) errorFieldToScroll = Object.keys(guestStudentErrors?.errors)[0]
+        else if (dateRangeErrors?.status) errorFieldToScroll = Object.keys(dateRangeErrors.errors)[0]
 
         if (errorFieldToScroll) {
           const errorElement = document.getElementById(errorFieldToScroll)
@@ -809,27 +1003,50 @@ export const useFormActions = ({
       'shift',
       'course',
       'stream',
-      'is_staff_child'
+      'is_staff_child',
+      'employee_details'
     ]
+
+    const isKidsClub =
+      enquiryTypeData?.slug === 'externalUserKidsClub' ||
+      formData.enquiry_type === 'KidsClub' ||
+      slug === 'createEnquiryKidsClubForm' ||
+      enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
 
     Object.keys(reqObj).forEach(key => {
       if (key === 'is_guest_student') {
         reqObj[key] = Array.isArray(reqObj[key]) ? reqObj[key].includes('yes') : !!reqObj[key]
       }
-      if (key in masterDropDownOptions || fieldsToDelete.includes(key)) delete reqObj[key]
       
-      const isKidsClubInternal = 
-        enquiryTypeData?.slug === 'externalUserKidsClub' || 
-        formData.enquiry_type === 'KidsClub' || 
-        slug === 'createEnquiryKidsClubForm'
+      if (isKidsClub) {
+        if (typeof reqObj[key] === 'string' && reqObj[key].startsWith('api/')) {
+          delete reqObj[key]
+          return
+        }
+        
+        if (reqObj[key + '.id'] !== undefined || reqObj[key + '.value'] !== undefined) {
+          delete reqObj[key]
+          return
+        }
 
-      if (isKidsClubInternal) {
+        const kidsClubExtraExclusions = [
+          'student_details.division',
+          'student_details.eligible_grade',
+          'division',
+          'eligible_grade'
+        ]
+
         if (
-          key.startsWith('parent_details.') || 
-          key.startsWith('residential_details.') || 
-          key === 'parent_type' ||
-          key === 'is_staff_child'
+          key in masterDropDownOptions || 
+          fieldsToDelete.includes(key) || 
+          fieldsToDelete.some(f => key.startsWith(f + '.')) ||
+          kidsClubExtraExclusions.includes(key) ||
+          kidsClubExtraExclusions.some(f => key.startsWith(f + '.'))
         ) {
+          delete reqObj[key]
+        }
+      } else {
+        if (key in masterDropDownOptions || fieldsToDelete.includes(key)) {
           delete reqObj[key]
         }
       }
@@ -850,13 +1067,11 @@ export const useFormActions = ({
       })
     }
 
-    const isKidsClub =
-      enquiryTypeData?.slug === 'externalUserKidsClub' ||
-      formData.enquiry_type === 'KidsClub' ||
-      slug === 'createEnquiryKidsClubForm' ||
-      enquiryTypeData?.name?.toLowerCase()?.includes('kids club')
+  
 
-    const actualIsStaffChild = formData['is_staff_child'] === 'yes' || formData['is_the_student_staff_child'] === 'yes'
+    const isStaffChildValue = formData['is_staff_child'] ?? formData['is_the_student_staff_child'] ?? false
+    const actualIsStaffChild = isStaffChildValue === 'yes' || isStaffChildValue === true
+
     const enquiryId = url?.split('/')?.pop()
 
     const dataToPass = {
@@ -864,10 +1079,12 @@ export const useFormActions = ({
       is_student_staff_child: isKidsClub ? actualIsStaffChild : appendRequest.is_student_staff_child,
       data: isKidsClub
         ? {
+            ...removeObjectNullAndEmptyKeys(reqObj),
             enquiry_type: 'KidsClub',
             student_type: String(formData['student_type.id'] || formData['student_type'] || 'Vibgyor'),
             is_student_staff_child: actualIsStaffChild,
-            ...(actualIsStaffChild && formData['employee_id'] ? { employee_id: String(formData['employee_id']) } : {}),
+            is_the_student_staff_child: actualIsStaffChild ? 'yes' : 'no',
+            ...(actualIsStaffChild && { employee_id: String(formData['employee_id'] || '') }),
             'academic_year.id': Number(formData['academic_year.id']),
             'academic_year.value': String(formData['academic_year.value'] || ''),
             'school_location.id': Number(formData['school_location.id'] || formData['kidsclub_location.id']),
@@ -892,14 +1109,38 @@ export const useFormActions = ({
             'student_details.dob': String(formData['student_details.dob'] || ''),
             'student_details.eligible_grade': String(
               formData['student_details.eligible_grade.value'] ||
-                formData['student_details.eligible_grade'] ||
-                'N/A'
+              (formData['student_details.eligible_grade'] && !formData['student_details.eligible_grade'].startsWith('api/') 
+                ? formData['student_details.eligible_grade'] 
+                : 'N/A')
             ),
             'student_details.gender.id': Number(formData['student_details.gender.id'] || 0),
             'student_details.gender.value': String(formData['student_details.gender.value'] || ''),
             'student_details.division.value': String(
               formData['student_details.division.value'] || formData['student_details.division'] || ''
             ),
+            parent_type: String(formData['parent_type'] || 'Father'),
+            'parent_details.father_details.country_code': Number(formData['parent_details.father_details.country_code'] || 1),
+            'parent_details.mother_details.country_code': Number(formData['parent_details.mother_details.country_code'] || 1),
+            'parent_details.guardian_details.country_code': Number(formData['parent_details.guardian_details.country_code'] || 1),
+            ...( (formData['parent_type'] === 'Father' || !formData['parent_type']) && {
+              'parent_details.father_details.first_name': String(formData['parent_details.father_details.first_name'] || ''),
+              'parent_details.father_details.last_name': String(formData['parent_details.father_details.last_name'] || ''),
+              'parent_details.father_details.mobile': String(formData['parent_details.father_details.mobile'] || ''),
+              'parent_details.father_details.email': String(formData['parent_details.father_details.email'] || '')
+            }),
+            ...(formData['parent_type'] === 'Mother' && {
+              'parent_details.mother_details.first_name': String(formData['parent_details.mother_details.first_name'] || ''),
+              'parent_details.mother_details.last_name': String(formData['parent_details.mother_details.last_name'] || ''),
+              'parent_details.mother_details.mobile': String(formData['parent_details.mother_details.mobile'] || ''),
+              'parent_details.mother_details.email': String(formData['parent_details.mother_details.email'] || '')
+            }),
+            ...(formData['parent_type'] === 'Guardian' && {
+              'parent_details.guardian_details.first_name': String(formData['parent_details.guardian_details.first_name'] || ''),
+              'parent_details.guardian_details.last_name': String(formData['parent_details.guardian_details.last_name'] || ''),
+              'parent_details.guardian_details.mobile': String(formData['parent_details.guardian_details.mobile'] || ''),
+              'parent_details.guardian_details.email': String(formData['parent_details.guardian_details.email'] || '')
+            }),
+            batch_selection: formData['batch_selection'] || [],
             ...(requestParams?.reqType === 'PATCH' && enquiryId && enquiryId !== 'create' && { enquiryId: enquiryId })
           }
     : {
@@ -997,7 +1238,11 @@ export const useFormActions = ({
 
 
 
-    if ((activeStageName === ENQUIRY_STAGES?.ENQUIRY || isKidsClub) && !skipReopenCheckRef.current) {
+    const shouldCheckDuplicate = 
+      activeStageName === ENQUIRY_STAGES?.ENQUIRY || 
+      (isKidsClub && slug === 'enquiryKidsClubStudentDetailRegistrationForm');
+
+    if (shouldCheckDuplicate && !skipReopenCheckRef.current) {
       const reopenParams = {
         url: `marketing/enquiry/handleReopn`,
         authToken,
@@ -1018,31 +1263,31 @@ export const useFormActions = ({
         return
       }
 
-      if (slug !== 'createEnquiryKidsClubForm') {
-        const dupParams = {
-          url: `marketing/enquiry/handleDuplicate/findByEmailPhone`,
-          authToken,
-          data: {
-            email:
-              formData['parent_details.father_details.email'] ||
-              formData['parent_details.mother_details.email'] ||
-              formData['parent_details.guardian_details.email'] || '',
-            phone:
-              formData['parent_details.father_details.mobile'] ||
-              formData['parent_details.mother_details.mobile'] ||
-              formData['parent_details.guardian_details.mobile'] || '',
-            enquiryType: formData?.enquiry_type ,
-            ...(enquiryId && enquiryId !== 'create' && { enquiry_id: enquiryId })
-          }
-        }
-        const dupResp = await postRequest(dupParams)
-        if (dupResp?.data?.length > 0) {
-          setOpenDupliacteByEmailPhone(true)
-          setOpenDupliacteByEmailPhoneData(dupResp?.data)
-          setGlobalState({ isLoading: false })
-          return
-        }
-      }
+      // if (slug !== 'createEnquiryKidsClubForm') {
+      //   const dupParams = {
+      //     url: `marketing/enquiry/handleDuplicate/findByEmailPhone`,
+      //     authToken,
+      //     data: {
+      //       email:
+      //         formData['parent_details.father_details.email'] ||
+      //         formData['parent_details.mother_details.email'] ||
+      //         formData['parent_details.guardian_details.email'] || '',
+      //       phone:
+      //         formData['parent_details.father_details.mobile'] ||
+      //         formData['parent_details.mother_details.mobile'] ||
+      //         formData['parent_details.guardian_details.mobile'] || '',
+      //       enquiryType: formData?.enquiry_type ,
+      //       ...(enquiryId && enquiryId !== 'create' && { enquiry_id: enquiryId })
+      //     }
+      //   }
+      //   const dupResp = await postRequest(dupParams)
+      //   if (dupResp?.data?.length > 0) {
+      //     setOpenDupliacteByEmailPhone(true)
+      //     setOpenDupliacteByEmailPhoneData(dupResp?.data)
+      //     setGlobalState({ isLoading: false })
+      //     return
+      //   }
+      // }
     }
 
     const Url = url
@@ -1094,6 +1339,7 @@ export const useFormActions = ({
     validateGuestStudent,
     validateStudentEnrollment,
     validatePincodeFormat,
+    validateDateRange,
     setHandleLeadReopnData,
     setOpenReopenDialog,
     setOpenDupliacteByEmailPhone,

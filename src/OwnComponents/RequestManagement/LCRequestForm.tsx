@@ -30,7 +30,7 @@ import SuccessDialog from 'src/@core/CustomComponent/SuccessDialogBox/SuccessDia
 import ErrorDialogBox from 'src/@core/CustomComponent/ErrorDialogBox/ErrorDialogBox'
 import { getRequest, postRequest, putRequest } from 'src/services/apiService'
 import toast from 'react-hot-toast'
-import { getCurrentYearObject } from 'src/utils/helper'
+import { getCurrentYearObject, getLocalStorageVal } from 'src/utils/helper'
 
 const SectionTitle = styled(Typography)(({ theme }) => ({
   fontWeight: 500,
@@ -54,9 +54,10 @@ interface LCRequestFormProps {
   mode: 'create' | 'edit'
   requestId?: string
   requestTypeSlug?: string
+  isNormal?: boolean
 }
 
-const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps) => {
+const LCRequestForm = ({ mode, requestId, requestTypeSlug, isNormal = true }: LCRequestFormProps) => {
   const router = useRouter()
   const { setPagePaths } = useGlobalContext()
   const CalendarIcon = () => <span className='icon-calendar-1'></span>
@@ -140,8 +141,10 @@ const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps)
       mode === 'create'
         ? { title: isFacRequest ? 'New FAC Request' : 'New LC Request', path: '/request-listing/new-lc-request' }
         : {
-            title: isFacRequest ? 'Edit FAC Request' : 'Edit LC Request',
-            path: `/request-listing/edit-lc-request/${requestId}`
+            title: isFacRequest ? 'Edit FAC Request' : isNormal ? 'Edit LC Request' : 'View LC Request',
+            path: isNormal
+              ? `/request-listing/edit-lc-request/${requestId}`
+              : `/request-listing/view-lc-request/${requestId}`
           }
     ]
     setPagePaths(paths)
@@ -298,7 +301,7 @@ const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps)
             const oneDayBeforeLcDate = lcDate.subtract(1, 'day')
             const today = dayjs()
 
-            if (today.isAfter(oneDayBeforeLcDate, 'day')) {
+            if (today.isAfter(oneDayBeforeLcDate, 'day') || isNormal === false) {
               setCanEdit(false)
               setEditRestrictionMessage(
                 `Editing is not allowed. The LC Effective Date is ${lcDate.format('DD/MM/YYYY')}. ` +
@@ -541,7 +544,11 @@ const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps)
 
       return
     }
+    const userInfoStr = getLocalStorageVal('userInfo')
+    const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
 
+    const userId = userInfo?.userInfo?.id
+    
     setSubmitting(true)
 
     try {
@@ -572,6 +579,7 @@ const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps)
       payload.append('account_number', bankDetails.accountNumber)
 
       payload.append('future_admission_cancellation_request', noLcNumber ? '1' : '0')
+      payload.append('userId', userId)
 
       if (bankDetails.cancelledCheque) {
         payload.append('document', bankDetails.cancelledCheque)
@@ -671,7 +679,7 @@ const LCRequestForm = ({ mode, requestId, requestTypeSlug }: LCRequestFormProps)
 
   return (
     <Box sx={{ p: 6 }}>
-      {mode === 'edit' && !canEdit && (
+      {isNormal && mode === 'edit' && !canEdit && (
         <Alert severity='warning' sx={{ mb: 4 }}>
           {editRestrictionMessage}
         </Alert>

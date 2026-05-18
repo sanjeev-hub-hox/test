@@ -149,6 +149,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                   required={true}
                   handleOnChange={handleChange}
                   item={item}
+                  value={_text.value || ''}
                 />
               ) : item['input_field_name']?.includes('mobile') ? (
                 <PhoneNumberField
@@ -176,7 +177,10 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                   label={renderLabel(item?.['input_label'], item?.['input_note'])}
                   id={item?.['input_field_name']}
                   name={item?.['input_field_name']}
-                  value={_text.value || ''}
+                  value={
+                    typeof _text.value === 'string' && _text.value.startsWith('api/') ? '' : _text.value || ''
+                  }
+                  disabled={item?.validations?.[10]?.validation ? true : false}
                   InputProps={{
                     readOnly: item?.validations?.[10]?.validation ? true : false
                   }}
@@ -218,6 +222,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             required={true}
             handleOnChange={handleChange}
             item={item}
+            value={formData?.[item?.['input_field_name']] || ''}
           />
         ) : item['input_field_name']?.includes('mobile') ? (
           <PhoneNumberField
@@ -248,6 +253,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             className={formData?.error?.[item?.['input_field_name']] ? 'field-error' : ''}
             placeholder={item?.['input_placeholder']}
             label={renderLabel(item?.['input_label'], item?.['input_note'])}
+            disabled={item?.validations?.[10]?.validation ? true : false}
             id={item?.['input_field_name']}
             name={item?.['input_field_name']}
             value={formData?.[item?.['input_field_name']] || ''}
@@ -524,7 +530,9 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                 label={renderLabel(item?.['input_label'], item?.['input_note'])}
                 id={item?.['input_field_name']}
                 name={item?.['input_field_name']}
-                value={_text.value || ''}
+                value={
+                  typeof _text.value === 'string' && _text.value.startsWith('api/') ? '' : _text.value || ''
+                }
                 className={formData?.error?.[item?.['input_field_name']] ? 'field-error' : ''}
                 onChange={(e: any) =>
                   handleChange(
@@ -566,7 +574,11 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             label={renderLabel(item?.['input_label'], item?.['input_note'])}
             id={item?.['input_field_name']}
             name={item?.['input_field_name']}
-            value={formData?.[item?.['input_field_name']] || ''}
+            value={
+              typeof formData?.[item?.['input_field_name']] === 'string' && formData?.[item?.['input_field_name']]?.startsWith('api/')
+                ? ''
+                : formData?.[item?.['input_field_name']] || ''
+            }
             onChange={(e: any) =>
               handleChange(
                 item?.['input_field_name'],
@@ -693,6 +705,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                       )
                     }
                     required={item?.validations?.[0]?.validation}
+                    disabled={item?.validations?.[10]?.validation ? true : false}
                   >
                     {item?.['input_type_dropdown_options']?.map((opt: any, index: number) => (
                       <MenuItem key={index} value={opt.value}>
@@ -740,6 +753,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                   )
                 }
                 required={item?.validations?.[0]?.validation}
+                disabled={item?.validations?.[10]?.validation ? true : false}
               >
                 {item?.['input_type_dropdown_options']?.map((opt: any, index: number) => (
                   <MenuItem key={index} value={opt.value}>
@@ -873,6 +887,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
   // Date/DateTime Picker
   if (item?.['input_type'] === 'date' || item?.['input_type'] === 'dateTime') {
     const Picker = item?.['input_type'] === 'date' ? DatePicker : DateTimePicker
+    const isReadOnly = item?.validations?.[10]?.validation
+
     return (
       <Fragment>
         {item?.validations?.[6]?.validation && (
@@ -894,6 +910,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                 <Picker
                   label={item?.['input_label']}
                   value={_text.value ? dayjs(_text.value) : null}
+                  disabled={isReadOnly}
+                  disablePast={item?.['input_field_name'] === 'start_date' || item?.['input_field_name'] === 'end_date'}
                   onChange={e =>
                     handleChange(
                       item?.['input_field_name'],
@@ -933,6 +951,8 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             <Picker
               label={item?.['input_label']}
               value={formData?.[item?.['input_field_name']] ? dayjs(formData?.[item?.['input_field_name']]) : null}
+              disabled={isReadOnly}
+              disablePast={item?.['input_field_name'] === 'start_date' || item?.['input_field_name'] === 'end_date'}
               onChange={e =>
                 handleChange(
                   item?.['input_field_name'],
@@ -979,7 +999,11 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
         {item?.validations?.[6]?.validation && formData?.[item?.['input_field_name']]?.length > 0 ? (
           formData?.[item?.['input_field_name']]?.map((_text: any, inx: any) => (
             <Box key={_text.id} sx={{ mb: 2 }}>
-              <FormControl component='fieldset' error={Boolean(formData?.error?.[item?.['input_field_name']])}>
+              <FormControl 
+                component='fieldset' 
+                error={Boolean(formData?.error?.[item?.['input_field_name']])}
+                disabled={item?.validations?.[10]?.validation ? true : false}
+              >
                 <Box sx={{ mb: 1 }}>{renderLabel(`${item?.['input_label']} ${inx + 1}`, item?.['input_note'])}</Box>
                 <RadioGroup
                   row
@@ -1016,7 +1040,11 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
             </Box>
           ))
         ) : (
-          <FormControl component='fieldset' error={Boolean(formData?.error?.[item?.['input_field_name']])}>
+          <FormControl 
+            component='fieldset' 
+            error={Boolean(formData?.error?.[item?.['input_field_name']])}
+            disabled={item?.validations?.[10]?.validation ? true : false}
+          >
             <Box sx={{ mb: 1 }}>{renderLabel(item?.['input_label'], item?.['input_note'])}</Box>
             <RadioGroup
               row
@@ -1082,6 +1110,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                                 item
                               )
                             }
+                            disabled={item?.validations?.[10]?.validation ? true : false}
                           />
                         }
                         label={opt.displayValue}
@@ -1123,6 +1152,7 @@ const FieldRenderer: React.FC<FieldRendererProps> = ({
                             item
                           )
                         }
+                        disabled={item?.validations?.[10]?.validation ? true : false}
                       />
                     }
                     label={opt.displayValue}

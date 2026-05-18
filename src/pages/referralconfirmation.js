@@ -21,6 +21,7 @@ export default function ReferralConfirmation() {
   const [alreadySubmitted, setAlreadySubmitted] = useState(false)
   const [wrongSubmitted, setWrongSubmitted] = useState(false)
   const [errorMessage, setErrorMessage] = useState('') // 🆕 new state for showing attempt errors
+  // const [enquiry, setEnquiry] = useState(null);
 
   useEffect(() => {
     if (!router.isReady) return
@@ -31,22 +32,23 @@ export default function ReferralConfirmation() {
       return
     }
 
+
     const fetchReferralDetails = async () => {
       try {
-        const params = { url: `marketing/enquiry/referrals/${id}` }
+        const params = { url: `marketing/enquiry/referrals?id=${id}&type=${type}&action=${action}` } // ✅ fixed URL
         const response = await getRequest(params)
 
         if (response.status !== 200) throw new Error('Failed to fetch referral')
         const { data } = response
         if (!data?.length) throw new Error('No referral found')
-
         const enquiry = data[0]
+        // ✅ removed setEnquiry(enquiry) — state is commented out
+
         if (
           (action === 'referrer' && enquiry.other_details?.referrer?.verified == true) ||
           (action === 'referral' && enquiry.other_details?.referral?.verified == true)
         ) {
           setAlreadySubmitted(true)
-
           return
         }
 
@@ -55,11 +57,9 @@ export default function ReferralConfirmation() {
           (action === 'referral' && enquiry.other_details?.referral?.failedAttempts >= 3)
         ) {
           setWrongSubmitted(true)
-
           return
         }
 
-        // ✅ Set all display data from unified structure
         const { student_details = {}, academic_year, school_location, board, enquiry_number } = enquiry
         const { first_name, last_name, grade } = student_details
 
@@ -70,7 +70,7 @@ export default function ReferralConfirmation() {
         setGrade(grade?.value ?? '')
         setStream(board?.value ?? '')
 
-        // ✅ Unified - just two names needed
+        // ✅ Directly use top-level fields
         setReferredParentName(enquiry.referred_parent_name ?? '')
         setReferringSourceName(enquiry.referring_source_name ?? '')
 
@@ -82,13 +82,13 @@ export default function ReferralConfirmation() {
     }
 
     fetchReferralDetails()
-  }, [id, router.isReady])
+  }, [id, type, action, router.isReady])
 
   const handleSubmit = async e => {
     e.preventDefault()
     try {
       const params = {
-        url: `marketing/enquiry/referrals/${id}`,
+        url: `marketing/enquiry/referrals?id=${id}&type=${type}&action=${action}`,
         data: {
           phoneNumber,
           type: type ?? 'NA',
@@ -136,11 +136,15 @@ export default function ReferralConfirmation() {
     )
   }
 
+  // console.log('ACTION:', action)
+  // console.log('REFERRING NAME:', referringSourceName)
+  // console.log('REFERRED PARENT:', referredParentName)
+
   // ✅ Simplified label logic using unified structure
   // action = 'referral' → parent is verifying → show referrer's name, ask for referrer's phone
   // action = 'referrer' → referrer is verifying → show parent's name, ask for parent's phone
   const displayName = action === 'referral' ? referringSourceName : referredParentName
-  // const nameLabel = action === 'referral' ? "Referrer's Name:" : "Parent's Name:"
+  const nameLabel = action === 'referral' ? "Referrer's Name:" : "Parent's Name:"
   const phoneLabel = action === 'referral'
     ? "Please confirm by entering the referrer's phone number."
     : "Please confirm by entering the parent's phone number."
@@ -201,31 +205,30 @@ export default function ReferralConfirmation() {
               }}
             >
               <label
-                htmlFor='referrerName'
                 style={{
                   ...styles.label,
                   marginBottom: 0,
-                  minWidth: '120px',
+                  minWidth: '140px',
                   fontWeight: 500
                 }}
               >
-                {type === 'employee'
-                  ? 'Parent Name:'
-                  : type === 'parent'
-                  ? "Referrer's Name:"
-                  : type === 'referringparent'
-                  ? 'Referred Parent Name:'
-                  : type === 'referringcorporate'
-                  ? 'Referred Parent Name:'
-                  : type === 'referringschool'
-                  ? 'Referred Parent Name:'
-                  : ' '}
+                {nameLabel}
               </label>
+
               <input
                 type='text'
                 disabled
                 value={displayName || 'Unknown'}
-                style={{ fontSize: 'initial', color: 'black', maxWidth: '50%', border: 0, padding: '8px', borderRadius: '5px', flex: 1, backgroundColor: '#f0f4f8' }}
+                style={{
+                  fontSize: 'initial',
+                  color: 'black',
+                  maxWidth: '50%',
+                  border: 0,
+                  padding: '8px',
+                  borderRadius: '5px',
+                  flex: 1,
+                  backgroundColor: '#f0f4f8'
+                }}
               />
             </div>
 
